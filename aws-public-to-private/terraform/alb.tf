@@ -116,6 +116,14 @@ resource "aws_lb_target_group" "app" {
 
   # Target groups cannot be renamed in place. Creating the new one first avoids
   # an error where the listener still references the old group.
+  #
+  # CAVEAT worth knowing: because `name` above is a fixed string, if you ever
+  # change something that FORCES replacement (the port, protocol, or vpc_id),
+  # create_before_destroy will try to build a second group with the same name
+  # and AWS will reject it as a duplicate. Production modules avoid this with
+  # `name_prefix` instead of `name` - though note AWS caps a target group's
+  # name_prefix at just 6 characters. We keep the readable fixed name here
+  # because replacement is rare in a tutorial and clarity matters more.
   lifecycle {
     create_before_destroy = true
   }
@@ -175,7 +183,15 @@ resource "aws_lb_listener_rule" "ping" {
   priority = 100
 
   action {
-    type = "fixed_response"
+    # NOTE the hyphen. This is a genuine inconsistency in the AWS API that
+    # Terraform faithfully mirrors, and it catches almost everyone:
+    #   - the action TYPE string is hyphenated:  "fixed-response"
+    #   - the nested BLOCK name is underscored:  fixed_response { ... }
+    # Same for "authenticate-oidc", "authenticate-cognito", and "jwt-validation".
+    # Only "forward" and "redirect" are single words, so they look identical
+    # in both places - which is exactly why the mismatch is easy to miss.
+    type = "fixed-response"
+
     fixed_response {
       content_type = "text/plain"
       message_body = "pong - the load balancer itself is alive\n"
