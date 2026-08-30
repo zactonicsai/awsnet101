@@ -1,0 +1,1973 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>AWS Solution Builder — private subnets, internal load balancing, self-signed TLS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace']
+      },
+      colors: {
+        blue60:'#0f62fe', blue70:'#0043ce', blue80:'#002d9c', blue20:'#d0e2ff', blue10:'#edf5ff',
+        gray10:'#f4f4f4', gray20:'#e0e0e0', gray30:'#c6c6c6', gray60:'#6f6f6f',
+        gray80:'#393939', gray90:'#262626', gray100:'#161616',
+        red60:'#da1e28', yellow30:'#f1c21b', green50:'#24a148', purple60:'#8a3ffc', teal60:'#009d9a'
+      }
+    }
+  }
+}
+</script>
+<style>
+  :root { --fs: 16px; }
+  html { font-size: var(--fs); }
+  body { font-family:'IBM Plex Sans', system-ui, sans-serif; }
+  input, select, textarea, button { border-radius: 0; }
+  :focus-visible { outline: 2px solid #0f62fe; outline-offset: 1px; }
+  .dark :focus-visible { outline-color:#78a9ff; }
+  .field { width:100%; background:#f4f4f4; border:0; border-bottom:1px solid #8d8d8d; padding:.5em .6em; color:#161616; }
+  .dark .field { background:#262626; border-bottom-color:#6f6f6f; color:#f4f4f4; }
+  .chip { font-size:.72em; padding:.15em .45em; border:1px solid currentColor; }
+  .sheet { max-height: 88vh; }
+  svg text { user-select:none; }
+  .node { cursor:grab; }
+  .node.dragging { cursor:grabbing; }
+  .flowline { stroke-dasharray: 6 6; animation: march 1s linear infinite; }
+  @keyframes march { to { stroke-dashoffset: -12; } }
+  @media (prefers-reduced-motion: reduce) { .flowline { animation:none; } }
+  .scroll { scrollbar-width: thin; }
+  .scroll::-webkit-scrollbar { width:10px; height:10px; }
+  .scroll::-webkit-scrollbar-thumb { background:#c6c6c6; }
+  .dark .scroll::-webkit-scrollbar-thumb { background:#525252; }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  @media print {
+    .noprint { display:none !important; }
+    #canvasWrap { position:static !important; height:auto !important; border:0 !important; }
+    #printOnly { display:block !important; }
+    html, body { background:#fff !important; color:#000 !important; font-size:12px; }
+  }
+</style>
+</head>
+<body class="bg-white text-gray100 dark:bg-gray100 dark:text-gray10 antialiased">
+
+<header class="noprint sticky top-0 z-30 bg-white dark:bg-gray100 border-b border-gray20 dark:border-gray80">
+  <div class="flex items-center gap-2 px-3 h-[52px]">
+    <button id="btnPalette" class="lg:hidden px-2 py-1 border border-gray30 dark:border-gray80 text-sm">Services</button>
+    <div class="flex items-baseline gap-2 min-w-0">
+      <span class="font-semibold tracking-tight text-blue70 dark:text-blue20 truncate">AWS Solution Builder</span>
+      <span class="chip text-teal60 whitespace-nowrap">private only</span>
+      <span class="hidden xl:inline text-gray60 text-sm truncate">no internet gateway, no public IPs, self-signed TLS</span>
+    </div>
+    <div class="ml-auto flex items-center gap-1">
+      <button data-modal="guide" class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm">Guide</button>
+      <button id="btnFlow" class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm">Show flow</button>
+      <button data-modal="code" class="px-2 py-1 bg-blue60 text-white text-sm hover:bg-blue70">Generate code</button>
+      <button id="btnProps" class="lg:hidden px-2 py-1 border border-gray30 dark:border-gray80 text-sm">Details</button>
+    </div>
+  </div>
+  <div class="flex items-center gap-1 px-3 pb-2 overflow-x-auto scroll text-sm">
+    <button data-modal="templates" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Examples</button>
+    <button id="btnSave" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Save</button>
+    <button data-modal="io" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Export / import</button>
+    <button id="btnPrint" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Print</button>
+    <button id="btnClear" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Clear</button>
+    <span class="w-px h-5 bg-gray20 dark:bg-gray80 mx-1"></span>
+    <button id="btnZoomOut" class="px-2 py-1 border border-gray30 dark:border-gray80">−</button>
+    <button id="btnZoomFit" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Fit</button>
+    <button id="btnZoomIn" class="px-2 py-1 border border-gray30 dark:border-gray80">+</button>
+    <span class="w-px h-5 bg-gray20 dark:bg-gray80 mx-1"></span>
+    <label class="flex items-center gap-2 whitespace-nowrap">
+      <span class="text-gray60 dark:text-gray30">Text</span>
+      <button id="fsDown" class="px-2 py-1 border border-gray30 dark:border-gray80">A−</button>
+      <input id="fsRange" type="range" min="14" max="36" step="1" value="16" class="w-24 accent-blue60" aria-label="Font size 14 to 36" />
+      <button id="fsUp" class="px-2 py-1 border border-gray30 dark:border-gray80">A+</button>
+      <output id="fsOut" class="font-mono w-8 text-center">16</output>
+    </label>
+    <span class="w-px h-5 bg-gray20 dark:bg-gray80 mx-1"></span>
+    <button id="btnTheme" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Dark mode</button>
+  </div>
+</header>
+
+<main class="flex h-[calc(100vh-96px)] min-h-[420px]">
+  <aside id="palette" class="noprint hidden lg:flex flex-col w-[280px] shrink-0 border-r border-gray20 dark:border-gray80 overflow-y-auto scroll
+              fixed lg:static inset-y-0 left-0 z-40 bg-white dark:bg-gray100">
+    <div class="p-3 border-b border-gray20 dark:border-gray80 flex items-center justify-between">
+      <h2 class="font-semibold">Service palette</h2>
+      <button id="closePalette" class="lg:hidden px-2 border border-gray30 dark:border-gray80">Close</button>
+    </div>
+    <p class="px-3 pt-3 text-sm text-gray60 dark:text-gray30">Tap a service to drop it on the canvas. On a computer you can also drag it across.</p>
+    <div id="paletteList" class="p-3 space-y-2"></div>
+    <div class="p-3 mt-auto text-sm text-gray60 dark:text-gray30 border-t border-gray20 dark:border-gray80">
+      <p class="mb-1">Build order that works every time:</p>
+      <ol class="list-decimal ml-5 space-y-0.5">
+        <li>VPC</li><li>Private subnets</li><li>Security groups</li>
+        <li>Target group</li><li>Load balancer</li>
+        <li>Launch template</li><li>EC2 instances</li>
+      </ol>
+    </div>
+  </aside>
+
+  <section class="flex-1 flex flex-col min-w-0">
+    <div id="canvasWrap" class="relative flex-1 bg-gray10 dark:bg-gray90 overflow-hidden">
+      <svg id="canvas" class="w-full h-full touch-none" role="img" aria-label="Architecture diagram">
+        <defs>
+          <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M24 0 H0 V24" fill="none" stroke="currentColor" stroke-width="1" opacity=".18"/>
+          </pattern>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/>
+          </marker>
+        </defs>
+        <rect id="gridRect" width="100%" height="100%" fill="url(#grid)" class="text-gray30 dark:text-gray60"/>
+        <g id="viewport">
+          <g id="edgeLayer"></g>
+          <g id="nodeLayer"></g>
+        </g>
+      </svg>
+      <div id="emptyState" class="absolute inset-0 flex items-center justify-center pointer-events-none px-6">
+        <div class="max-w-md text-center pointer-events-auto">
+          <p class="text-lg font-semibold mb-2">Nothing on the canvas yet</p>
+          <p class="text-gray60 dark:text-gray30 mb-4">Start from a working example, or open the palette and place a VPC.</p>
+          <button data-modal="templates" class="px-3 py-2 bg-blue60 text-white">Load an example</button>
+          <button data-modal="guide" class="px-3 py-2 border border-gray30 dark:border-gray60 ml-1">Read the walkthrough</button>
+        </div>
+      </div>
+      <div class="noprint absolute bottom-2 left-2 flex gap-1 text-xs">
+        <span id="hint" class="bg-white/90 dark:bg-gray100/90 border border-gray20 dark:border-gray80 px-2 py-1"></span>
+      </div>
+    </div>
+
+    <div class="border-t border-gray20 dark:border-gray80 bg-white dark:bg-gray100">
+      <details open>
+        <summary class="px-3 py-2 flex items-center gap-2 border-b border-gray20 dark:border-gray80">
+          <span class="font-semibold">Checks</span>
+          <span id="checkCount" class="chip text-gray60"></span>
+          <span class="ml-auto text-sm text-gray60 dark:text-gray30">what is missing before this can be built</span>
+        </summary>
+        <ul id="checkList" class="max-h-[22vh] overflow-y-auto scroll divide-y divide-gray20 dark:divide-gray80 text-sm"></ul>
+      </details>
+    </div>
+  </section>
+
+  <aside id="propsPane" class="noprint hidden lg:flex flex-col w-[340px] shrink-0 border-l border-gray20 dark:border-gray80 overflow-y-auto scroll
+             fixed lg:static inset-y-0 right-0 z-40 bg-white dark:bg-gray100">
+    <div class="p-3 border-b border-gray20 dark:border-gray80 flex items-center justify-between">
+      <h2 class="font-semibold">Properties</h2>
+      <button id="closeProps" class="lg:hidden px-2 border border-gray30 dark:border-gray80">Close</button>
+    </div>
+    <div id="propsBody" class="p-3"></div>
+  </aside>
+</main>
+
+<div id="printOnly" style="display:none" class="p-4"></div>
+
+<div id="modalRoot" class="noprint fixed inset-0 z-50 hidden">
+  <div id="modalScrim" class="absolute inset-0 bg-black/50"></div>
+  <div class="absolute inset-x-0 bottom-0 md:inset-0 md:m-auto md:h-fit md:max-w-3xl bg-white dark:bg-gray100 border border-gray30 dark:border-gray80 flex flex-col sheet">
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-gray20 dark:border-gray80">
+      <h3 id="modalTitle" class="font-semibold text-blue70 dark:text-blue20"></h3>
+      <button id="modalClose" class="ml-auto px-2 py-1 border border-gray30 dark:border-gray80">Close</button>
+    </div>
+    <div id="modalBody" class="p-4 overflow-y-auto scroll"></div>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   AWS Solution Builder — private-only edition
+   Everything generated here stays inside private subnets:
+     · no internet gateway, no NAT, no public IP addresses
+     · load balancers are internal, or an existing one is reused
+     · TLS uses self-signed certificates, which cost nothing
+   ========================================================================= */
+
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const uid = () => 'n' + Math.random().toString(36).slice(2, 8);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const tfName = s => (String(s || 'res').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'res');
+const SH = s => tfName(s).toUpperCase();
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+const AWS_REGIONS = ['us-east-1','us-east-2','us-west-1','us-west-2','ca-central-1','eu-west-1','eu-west-2','eu-central-1','ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1','sa-east-1'];
+const INSTANCE_TYPES = ['t3.micro','t3.small','t3.medium','t3.large','t3.xlarge','m5.large','m5.xlarge','m6i.large','c6i.large','r6i.large'];
+
+const ICONS = {
+  vpc:  '<rect x="3" y="4" width="18" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2"/><path d="M7 9h10M7 13h6" stroke="currentColor" stroke-width="1.6"/>',
+  subnet:'<rect x="3" y="6" width="18" height="12" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 12h18" stroke="currentColor" stroke-width="1.6"/>',
+  sg:   '<path d="M12 3l7 3v6c0 4-3 6.5-7 9-4-2.5-7-5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+  alb:  '<circle cx="12" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.2V11M5 19v-3.5h14V19M5 15.5h14" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+  tg:   '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/>',
+  lt:   '<path d="M6 20l3-8 3-6 3 6 3 8-6-3z" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+  ec2:  '<rect x="5" y="5" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="9" y="9" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2" stroke="currentColor" stroke-width="1.4"/>'
+};
+
+const TYPES = {
+  vpc: {
+    name: 'VPC', color: '#8a3ffc', order: 1,
+    plain: 'Your own private slice of the AWS network.',
+    what: 'A VPC is a private network you own inside AWS. In this builder it is always a closed network: there is no internet gateway and no NAT gateway, so nothing inside can be reached from the internet and nothing inside can casually dial out. Instances talk to AWS services through VPC endpoints instead, and you reach the environment through a VPN, Direct Connect, or Session Manager.',
+    needs: ['A CIDR block. 10.0.0.0/16 gives about 65,000 addresses.',
+            'DNS hostnames on, so private DNS for endpoints works.',
+            'The S3 gateway endpoint, which is free and is what lets dnf and yum reach the Amazon Linux repositories without any internet.',
+            'Interface endpoints only if you need them. Each one is billed hourly per Availability Zone, so turn on just the ones you use.'],
+    docs: [['VPC user guide','https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html'],
+           ['VPC endpoints','https://docs.aws.amazon.com/vpc/latest/privatelink/concepts.html'],
+           ['Gateway endpoints for S3','https://docs.aws.amazon.com/vpc/latest/privatelink/vpc-endpoints-s3.html'],
+           ['Terraform aws_vpc','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'main-vpc', req:true},
+      {k:'region', l:'Region', t:'select', opts:AWS_REGIONS, def:'us-east-1', req:true},
+      {k:'cidr', l:'CIDR block', t:'text', def:'10.0.0.0/16', req:true, ph:'10.0.0.0/16'},
+      {k:'dns', l:'Enable DNS hostnames', t:'bool', def:true, help:'Leave on. Private DNS for VPC endpoints depends on it.'},
+      {k:'s3Endpoint', l:'S3 gateway endpoint', t:'bool', def:true, help:'Free. Attaches to the private route table so package repositories and S3 buckets work with no internet.'},
+      {k:'ifaceEndpoints', l:'Interface endpoints', t:'bool', def:false, help:'Billed per hour per zone, roughly 7 to 8 US dollars each per month, plus data. Only turn this on if you need Session Manager or private ECR pulls.'},
+      {k:'ifaceServices', l:'Which interface endpoints', t:'text', def:'ssm,ssmmessages,ec2messages', show:n => n.props.ifaceEndpoints,
+       help:'Comma separated short names. ssm, ssmmessages and ec2messages are the three that Session Manager needs. Add ecr.api, ecr.dkr and logs for private container pulls.'}
+    ]
+  },
+
+  subnet: {
+    name: 'Private subnet', color: '#009d9a', order: 2,
+    plain: 'A floor of the building, in one data centre, with no way out.',
+    what: 'A subnet is a slice of the VPC that sits in exactly one Availability Zone. Every subnet this builder creates is private: it is attached to a route table that has no default route to the internet, and instances launched in it never receive a public address. Use at least two subnets in two different zones so a single data centre problem does not take the service down.',
+    needs: ['The VPC it belongs to.',
+            'A smaller CIDR inside the VPC range, such as 10.0.1.0/24.',
+            'An Availability Zone letter. Spread across at least two.',
+            'A role, which is only a tag, but it keeps the diagram readable.'],
+    docs: [['Subnets','https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html'],
+           ['Route tables','https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html'],
+           ['Terraform aws_subnet','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'private-a', req:true},
+      {k:'vpc', l:'VPC', t:'ref', of:'vpc', req:true, edge:'contain'},
+      {k:'cidr', l:'CIDR block', t:'text', def:'10.0.1.0/24', req:true},
+      {k:'az', l:'Availability Zone', t:'select', opts:['a','b','c','d'], def:'a', req:true},
+      {k:'role', l:'Role', t:'select', opts:['load-balancer','application','data'], def:'application', help:'A tag only. It does not change routing.'}
+    ]
+  },
+
+  sg: {
+    name: 'Security group', color: '#24a148', order: 3,
+    plain: 'A firewall wrapped around one or more machines.',
+    what: 'A security group is a list of who is allowed to talk to me. It only has allow rules, and it is stateful, so a reply to allowed traffic is automatically allowed back. In a private design every source should be another security group or an internal address range. The generator refuses 0.0.0.0/0.',
+    needs: ['The VPC it lives in.',
+            'Inbound rules written as protocol:port:source, one per line.',
+            'The source is best written as the name of another security group on the canvas, which becomes a real group-to-group rule.',
+            'Nothing here should be open to 0.0.0.0/0.'],
+    docs: [['Security groups','https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html'],
+           ['Security group rules','https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html'],
+           ['Terraform aws_security_group','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-sg', req:true},
+      {k:'vpc', l:'VPC', t:'ref', of:'vpc', req:true, edge:'contain'},
+      {k:'desc', l:'Description', t:'text', def:'Managed by AWS Solution Builder'},
+      {k:'ingress', l:'Inbound rules', t:'area', rows:4, def:'tcp:8443:10.0.0.0/16',
+       ph:'tcp:8443:alb-sg\ntcp:443:10.0.0.0/16',
+       help:'One per line as protocol:port:source. The source can be the name of another security group on the canvas, or an internal CIDR. Public ranges are rejected.'},
+      {k:'egressAll', l:'Allow all outbound', t:'bool', def:true, help:'There is no internet route anyway, so this only reaches other things inside the VPC and the endpoints.'}
+    ]
+  },
+
+  tg: {
+    name: 'Target group', color: '#ff832b', order: 4,
+    plain: 'The list of machines the load balancer sends traffic to.',
+    what: 'A target group is a bucket of destinations plus a health check. The load balancer knows the target group; the target group knows the servers. Because every service here speaks TLS, the target group normally uses HTTPS. The load balancer does not verify the certificate on the back end, which is exactly why a self-signed certificate on the instance is fine.',
+    needs: ['The VPC, so targets are reachable.',
+            'The port and protocol your application listens on inside the machine.',
+            'A health check path that answers without a login. It can run on a different port from the traffic, which is useful for Keycloak.',
+            'The instances that belong in it.'],
+    docs: [['Target groups','https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html'],
+           ['Health checks','https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html'],
+           ['Terraform aws_lb_target_group','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_target_group']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-tg', req:true},
+      {k:'vpc', l:'VPC', t:'ref', of:'vpc', req:true, edge:'contain'},
+      {k:'port', l:'Target port', t:'num', def:8443, req:true},
+      {k:'protocol', l:'Protocol', t:'select', opts:['HTTPS','HTTP'], def:'HTTPS', help:'HTTPS keeps the leg between the load balancer and the instance encrypted with the instance self-signed certificate.'},
+      {k:'hcPath', l:'Health check path', t:'text', def:'/', req:true},
+      {k:'hcProtocol', l:'Health check protocol', t:'select', opts:['HTTPS','HTTP'], def:'HTTPS'},
+      {k:'hcPort', l:'Health check port', t:'text', def:'', ph:'traffic-port', help:'Leave blank to use the traffic port. Keycloak puts health on the management port 9000.'},
+      {k:'hcMatcher', l:'Expected status codes', t:'text', def:'200'},
+      {k:'hcInterval', l:'Check every (seconds)', t:'num', def:30},
+      {k:'healthy', l:'Healthy after (checks)', t:'num', def:2},
+      {k:'unhealthy', l:'Unhealthy after (checks)', t:'num', def:3},
+      {k:'deregDelay', l:'Draining time (seconds)', t:'num', def:30},
+      {k:'stickiness', l:'Sticky sessions', t:'bool', def:false},
+      {k:'targets', l:'Instances in this group', t:'refs', of:'ec2', edge:'flow'}
+    ]
+  },
+
+  alb: {
+    name: 'Load balancer', color: '#0f62fe', order: 5,
+    plain: 'The internal front door. Create one, or hang a rule off one you already have.',
+    what: 'An Application Load Balancer accepts the connection and forwards it to a healthy target. Here it is always internal, so it gets private addresses only and can be reached from inside the VPC, a peered network, or a VPN. Load balancers are billed by the hour whether or not they are busy, so if your account already has an internal one, reuse it: pick "Reuse an existing load balancer" and this generates only a listener rule, which is free.',
+    needs: ['Reuse: the name of the existing load balancer and the port of the listener to add a rule to, plus a host or path condition and a spare priority number.',
+            'Create: at least two private subnets in different zones, and a security group.',
+            'A certificate for a new HTTPS listener. Self-signed is generated for you and imported into ACM at no charge.',
+            'A target group to forward to.'],
+    docs: [['Application Load Balancer','https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html'],
+           ['Listener rules','https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-update-rules.html'],
+           ['Importing a certificate into ACM','https://docs.aws.amazon.com/acm/latest/userguide/import-certificate.html'],
+           ['Terraform aws_lb_listener_rule','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_listener_rule']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-alb', req:true},
+      {k:'source', l:'Where the load balancer comes from', t:'select', def:'existing',
+       opts:['existing','create'], optLabels:{existing:'Reuse an existing load balancer', create:'Create a new internal load balancer'},
+       help:'Reusing costs nothing extra. Creating adds an hourly charge.'},
+
+      {k:'existingName', l:'Existing load balancer name', t:'text', def:'shared-internal-alb', req:true, show:n => n.props.source === 'existing',
+       help:'Exactly as it appears in the console. It is looked up with a data source, so this design never changes or destroys it.'},
+      {k:'existingPort', l:'Existing listener port', t:'num', def:443, req:true, show:n => n.props.source === 'existing',
+       help:'The rule is attached to the listener already on that port. Its certificate is reused, so no new certificate is needed.'},
+      {k:'ruleHost', l:'Host header to match', t:'text', def:'', ph:'app.internal.example.com', show:n => n.props.source === 'existing',
+       help:'Optional. Leave blank to match on path only.'},
+      {k:'rulePath', l:'Path to match', t:'text', def:'/*', show:n => n.props.source === 'existing'},
+      {k:'rulePriority', l:'Rule priority', t:'num', def:100, req:true, show:n => n.props.source === 'existing',
+       help:'A number from 1 to 50000 that is not already used on that listener. Lower numbers are evaluated first.'},
+      {k:'openExistingSg', l:'Open the app firewall to the existing load balancer', t:'bool', def:true, show:n => n.props.source === 'existing',
+       help:'Generates a rule allowing the target port from whichever security groups the existing load balancer already uses.'},
+
+      {k:'subnets', l:'Private subnets', t:'refs', of:'subnet', edge:'contain', show:n => n.props.source === 'create', help:'At least two, in different zones.'},
+      {k:'securityGroups', l:'Security groups', t:'refs', of:'sg', edge:'attach', show:n => n.props.source === 'create'},
+      {k:'listenProtocol', l:'Listener protocol', t:'select', opts:['HTTPS','HTTP'], def:'HTTPS', show:n => n.props.source === 'create',
+       help:'The alb module serves HTTPS on 443 whenever a certificate is supplied. That port is not configurable.'},
+      {k:'httpPort', l:'Plain HTTP listener port', t:'num', def:80, show:n => n.props.source === 'create',
+       help:'Used for the redirect to HTTPS, or to serve traffic directly when the listener protocol is HTTP.'},
+      {k:'certMode', l:'Certificate', t:'select', def:'selfsigned', opts:['selfsigned','acm'],
+       optLabels:{selfsigned:'Generate a self-signed certificate (no cost)', acm:'Use a certificate I already have in ACM'},
+       show:n => n.props.source === 'create' && n.props.listenProtocol === 'HTTPS'},
+      {k:'certDomain', l:'Certificate common name', t:'text', def:'app.internal', show:n => n.props.source === 'create' && n.props.listenProtocol === 'HTTPS' && n.props.certMode === 'selfsigned',
+       help:'The internal name clients will use. It goes in the subject and the subject alternative name.'},
+      {k:'certDays', l:'Certificate valid for (days)', t:'num', def:825, show:n => n.props.source === 'create' && n.props.listenProtocol === 'HTTPS' && n.props.certMode === 'selfsigned'},
+      {k:'certArn', l:'Certificate ARN', t:'text', ph:'arn:aws:acm:us-east-1:1234:certificate/…', show:n => n.props.source === 'create' && n.props.listenProtocol === 'HTTPS' && n.props.certMode === 'acm'},
+      {k:'redirect80', l:'Redirect port 80 to HTTPS', t:'bool', def:true, show:n => n.props.source === 'create' && n.props.listenProtocol === 'HTTPS'},
+      {k:'idle', l:'Idle timeout (seconds)', t:'num', def:60, show:n => n.props.source === 'create'},
+
+      {k:'targetGroup', l:'Forward to target group', t:'ref', of:'tg', req:true, edge:'flow'}
+    ]
+  },
+
+  lt: {
+    name: 'Launch template', color: '#0043ce', order: 6,
+    plain: 'The recipe every server is built from.',
+    what: 'A launch template saves the operating system image, the size, the disk, the firewall, and a startup script, so every instance comes out identical. In a private design the startup script cannot download from the internet. It can reach the Amazon Linux repositories through the free S3 gateway endpoint, and anything else has to come from S3, from ECR, or be baked into the image already.',
+    needs: ['An AMI ID for your region.',
+            'An instance type.',
+            'Security groups.',
+            'An IAM instance profile with AmazonSSMManagedInstanceCore, because there is no public address and no bastion. Session Manager is how you get a shell.',
+            'User data that creates the self-signed certificate and starts the service on it.'],
+    docs: [['Launch templates','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-launch-templates.html'],
+           ['Running commands at launch','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/user-data.html'],
+           ['Session Manager','https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html'],
+           ['Terraform aws_launch_template','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/launch_template']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-lt', req:true},
+      {k:'ami', l:'AMI ID', t:'text', def:'', ph:'leave blank to auto-resolve',
+       help:'Leave blank and the launch-template module resolves the newest Amazon Linux 2023 image from a public SSM parameter. That is better than pinning an ID, which is region-specific and goes stale with every patch.'},
+      {k:'arch', l:'Architecture', t:'select', opts:['x86_64','arm64'], def:'x86_64',
+       help:'Must match the instance type. arm64 goes with t4g and m7g and is about 20 percent cheaper; x86_64 goes with t3, m5 and c6i.'},
+      {k:'instanceType', l:'Instance type', t:'select', opts:INSTANCE_TYPES, def:'t3.medium', req:true},
+      {k:'keyName', l:'SSH key pair name', t:'text', ph:'leave blank', help:'Leave blank. With no public address and no bastion, SSH is not the way in. Use Session Manager.'},
+      {k:'securityGroups', l:'Security groups', t:'refs', of:'sg', req:true, edge:'attach'},
+      {k:'subnet', l:'Default subnet', t:'ref', of:'subnet', edge:'contain'},
+      {k:'iamMode', l:'Instance profile', t:'select', def:'create', opts:['create','existing','none'],
+       optLabels:{create:'Create one with the iam-instance-profile module', existing:'Use a profile that already exists', none:'No AWS permissions at all'}},
+      {k:'iamPolicies', l:'Managed policies to attach', t:'area', rows:3, show:n => n.props.iamMode === 'create',
+       def:'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
+       help:'Comma separated ARNs. AmazonSSMManagedInstanceCore is what gives you a shell without SSH. Add CloudWatchAgentServerPolicy for logs, and your own policies for S3 or ECR reads.'},
+      {k:'iamProfile', l:'Existing profile name', t:'text', def:'', show:n => n.props.iamMode === 'existing', help:'The profile name, not its ARN.'},
+      {k:'volumeSize', l:'Root disk size (GB)', t:'num', def:20},
+      {k:'imdsv2', l:'Require IMDSv2', t:'bool', def:true},
+      {k:'imdsHops', l:'Metadata hop limit', t:'num', def:1,
+       help:'1 stops containers on the host from reading instance credentials. Raise to 2 only if something inside a container needs them; scripts running on the host itself are fine at 1.'},
+      {k:'monitoring', l:'Detailed monitoring', t:'bool', def:false, help:'About 2 dollars per instance per month. Off by default.'},
+      {k:'asgMin', l:'Auto Scaling: minimum instances', t:'num', def:2,
+       help:'Instances sharing this template are generated as one Auto Scaling Group. The number of EC2 boxes on the canvas becomes the desired capacity.'},
+      {k:'asgMax', l:'Auto Scaling: maximum instances', t:'num', def:4, help:'A ceiling on capacity and therefore on cost.'},
+      {k:'asgGrace', l:'Health check grace period (seconds)', t:'num', def:300,
+       help:'How long the group ignores health checks after launch. Too short and instances are killed mid-bootstrap, which loops forever.'},
+      {k:'asgRefresh', l:'Roll out template changes automatically', t:'bool', def:true},
+      {k:'userData', l:'User data (startup script)', t:'area', rows:12, mono:true,
+       def:'#!/bin/bash\nset -euxo pipefail\ndnf -y update\n',
+       help:'Runs once as root on first boot. There is no internet, so install from the Amazon Linux repositories, S3, or ECR only.'}
+    ]
+  },
+
+  ec2: {
+    name: 'EC2 instance', color: '#161616', order: 7,
+    plain: 'An actual virtual machine, with a private address only.',
+    what: 'EC2 is a rented computer. It boots the image, runs the startup script, and serves traffic. Every instance here lives in a private subnet with no public address, so nothing on the internet can reach it and it cannot reach out. Treat instances as disposable: fix things in the launch template, not by logging in.',
+    needs: ['A private subnet, which decides the zone.',
+            'A launch template, which is the easy path.',
+            'Membership in a target group, if the load balancer should send it traffic.'],
+    docs: [['What is EC2','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html'],
+           ['Instance types','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html'],
+           ['Terraform aws_instance','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-1', req:true},
+      {k:'launchTemplate', l:'Launch template', t:'ref', of:'lt', edge:'attach'},
+      {k:'subnet', l:'Private subnet', t:'ref', of:'subnet', req:true, edge:'contain'},
+      {k:'ami', l:'AMI ID (only without a template)', t:'text', ph:'ami-0123456789abcdef0', show:n => !n.props.launchTemplate},
+      {k:'instanceType', l:'Instance type (only without a template)', t:'select', opts:[''].concat(INSTANCE_TYPES), def:'', show:n => !n.props.launchTemplate},
+      {k:'securityGroups', l:'Security groups (only without a template)', t:'refs', of:'sg', edge:'attach', show:n => !n.props.launchTemplate}
+    ]
+  }
+};
+const TYPE_KEYS = Object.keys(TYPES).sort((a,b) => TYPES[a].order - TYPES[b].order);
+const shown = (n, f) => !f.show || f.show(n);
+
+/* ---------- state + persistence ---------- */
+const SCHEMA_ID = 'aws-solution-builder';
+const SCHEMA_VERSION = 3;
+const LS_KEY = 'asb.doc.v1';
+const LS_PREF = 'asb.pref.v1';
+
+let state = { title: 'Untitled design', nodes: [], selected: null, view: {x: 40, y: 40, k: 1} };
+let flowMode = false, linkFrom = null, lastProblems = [];
+
+function defaults(type) {
+  const p = {};
+  TYPES[type].fields.forEach(f => {
+    if (f.def !== undefined) p[f.k] = f.def;
+    else if (f.t === 'refs') p[f.k] = [];
+    else if (f.t === 'bool') p[f.k] = false;
+    else p[f.k] = '';
+  });
+  return p;
+}
+function addNode(type, x, y, props) {
+  const n = { id: uid(), type, x: Math.round(x), y: Math.round(y), props: Object.assign(defaults(type), props || {}) };
+  const base = n.props.name || type;
+  let name = base, i = 2;
+  while (state.nodes.some(o => o.props.name === name)) name = base + '-' + (i++);
+  n.props.name = name;
+  state.nodes.push(n);
+  return n;
+}
+const byId = id => state.nodes.find(n => n.id === id);
+const ofType = t => state.nodes.filter(n => n.type === t);
+const vpcOf = n => byId(n.props.vpc) || ofType('vpc')[0];
+const regionOf = n => { const v = vpcOf(n); return v ? v.props.region : 'us-east-1'; };
+
+function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(doc())); toast('Saved to this browser'); } catch (e) { toast('Could not save: ' + e.message, true); } }
+function autosave() { try { localStorage.setItem(LS_KEY, JSON.stringify(doc())); } catch (e) {} }
+function doc() {
+  return { schema: SCHEMA_ID, version: SCHEMA_VERSION, title: state.title, savedAt: new Date().toISOString(),
+           view: state.view, nodes: state.nodes.map(n => ({id:n.id, type:n.type, x:n.x, y:n.y, props:n.props})) };
+}
+function migrate(p, type) {
+  // version 1 files described public networks; this edition is private only
+  delete p.public; delete p.autoip; delete p.igw; delete p.publicIp;
+  if (type === 'alb') {
+    if (p.scheme) delete p.scheme;
+    if (!p.source) p.source = 'create';
+    if (p.certArn && !p.certMode) p.certMode = 'acm';
+    delete p.listenPort;  // the alb module fixes HTTPS at 443
+  }
+  if (type === 'lt' && p.iamMode === undefined) {
+    // schema 2 stored a bare profile name
+    p.iamMode = p.iamProfile ? 'existing' : 'none';
+  }
+  return p;
+}
+function loadDoc(d, quiet) {
+  if (!d || d.schema !== SCHEMA_ID) throw new Error('This file is not an AWS Solution Builder design.');
+  if (!Array.isArray(d.nodes)) throw new Error('The file has no nodes list.');
+  state.title = d.title || 'Untitled design';
+  state.nodes = d.nodes.filter(n => TYPES[n.type]).map(n => ({
+    id: n.id || uid(), type: n.type, x: +n.x || 0, y: +n.y || 0,
+    props: Object.assign(defaults(n.type), migrate(n.props || {}, n.type))
+  }));
+  const ids = new Set(state.nodes.map(n => n.id));
+  state.nodes.forEach(n => TYPES[n.type].fields.forEach(f => {
+    if (f.t === 'ref' && n.props[f.k] && !ids.has(n.props[f.k])) n.props[f.k] = '';
+    if (f.t === 'refs') n.props[f.k] = (n.props[f.k] || []).filter(id => ids.has(id));
+  }));
+  state.selected = null;
+  if (d.view) state.view = d.view;
+  renderAll();
+  if (!quiet) toast(d.version === 1 ? 'Loaded and converted to private-only' : 'Design loaded');
+}
+
+/* ---------- diagram ---------- */
+const svg = $('#canvas'), vp = $('#viewport'), edgeLayer = $('#edgeLayer'), nodeLayer = $('#nodeLayer');
+const NW = 190, NH = 76;
+
+function edgesOf() {
+  const out = [];
+  state.nodes.forEach(n => TYPES[n.type].fields.forEach(f => {
+    if (!f.edge || !shown(n, f)) return;
+    const v = n.props[f.k];
+    const list = f.t === 'refs' ? (v || []) : (v ? [v] : []);
+    list.forEach(t => { if (byId(t)) out.push({from:n.id, to:t, kind:f.edge}); });
+  }));
+  return out;
+}
+function borderPoint(a, b) {
+  const ax = a.x + NW/2, ay = a.y + NH/2, bx = b.x + NW/2, by = b.y + NH/2;
+  const dx = bx - ax, dy = by - ay;
+  if (!dx && !dy) return {x: ax, y: ay};
+  const s = Math.min((NW/2 + 6) / Math.abs(dx || 1e-6), (NH/2 + 6) / Math.abs(dy || 1e-6));
+  return { x: ax + dx * s, y: ay + dy * s };
+}
+const EDGE_STYLE = { contain:{stroke:'#8d8d8d', dash:'4 4', width:1.5}, attach:{stroke:'#24a148', dash:'', width:1.5}, flow:{stroke:'#0f62fe', dash:'', width:2.5} };
+function renderEdges() {
+  edgeLayer.innerHTML = edgesOf().map(e => {
+    const a = byId(e.from), b = byId(e.to);
+    if (!a || !b) return '';
+    const p1 = borderPoint(a, b), p2 = borderPoint(b, a), st = EDGE_STYLE[e.kind] || EDGE_STYLE.attach;
+    const isFlow = e.kind === 'flow', dim = flowMode && !isFlow;
+    return '<line x1="' + p1.x + '" y1="' + p1.y + '" x2="' + p2.x + '" y2="' + p2.y + '" stroke="' + st.stroke +
+      '" stroke-width="' + st.width + '"' + (st.dash ? ' stroke-dasharray="' + st.dash + '"' : '') +
+      ' opacity="' + (dim ? .15 : .9) + '" marker-end="url(#arrow)"' + (flowMode && isFlow ? ' class="flowline"' : '') + '/>';
+  }).join('');
+}
+function nodeIssueIcons(n, problems) {
+  const mine = problems.filter(p => p.node === n.id);
+  const err = mine.some(p => p.level === 'error'), warn = mine.length > 0;
+  const g = t => '<g transform="translate(' + (NW - 26) + ',6)">' + t + '</g>';
+  if (err) return g('<circle r="9" cx="9" cy="9" fill="#da1e28"/><text x="9" y="13" text-anchor="middle" font-size="12" fill="#fff" font-weight="700">!</text>');
+  if (warn) return g('<circle r="9" cx="9" cy="9" fill="#f1c21b"/><text x="9" y="13" text-anchor="middle" font-size="12" fill="#161616" font-weight="700">?</text>');
+  return g('<circle r="9" cx="9" cy="9" fill="#24a148"/><path d="M5 9.5 L8 12.5 L13.5 6.5" stroke="#fff" stroke-width="2" fill="none"/>');
+}
+function summaryLine(n) {
+  const p = n.props;
+  switch (n.type) {
+    case 'vpc': return p.cidr + ' · ' + p.region + (p.ifaceEndpoints ? ' · endpoints' : '');
+    case 'subnet': return p.cidr + ' · zone ' + p.az + ' · private';
+    case 'sg': return ((p.ingress || '').split('\n').filter(Boolean).length) + ' inbound rule(s)';
+    case 'tg': return p.protocol + ' ' + p.port + ' · health ' + p.hcPath;
+    case 'alb': return p.source === 'existing' ? 'rule on ' + p.existingName + ':' + p.existingPort : 'new internal · ' + p.listenProtocol + (p.listenProtocol === 'HTTPS' ? ' 443' : ' ' + (p.httpPort || 80));
+    case 'lt': return p.instanceType + ' · ' + (p.ami || 'no AMI');
+    case 'ec2': { const lt = byId(p.launchTemplate); return lt ? 'from ' + lt.props.name : (p.instanceType || 'no size'); }
+  }
+  return '';
+}
+const clip = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+function renderNodes(problems) {
+  nodeLayer.innerHTML = state.nodes.map(n => {
+    const T = TYPES[n.type], sel = state.selected === n.id;
+    const dim = flowMode && !['alb','tg','ec2'].includes(n.type);
+    return '<g class="node" data-id="' + n.id + '" transform="translate(' + n.x + ',' + n.y + ')" opacity="' + (dim ? .3 : 1) + '" tabindex="0" role="button" aria-label="' + esc(T.name + ' ' + n.props.name) + '">' +
+      '<rect width="' + NW + '" height="' + NH + '" fill="var(--nodebg)" stroke="' + (sel ? '#0f62fe' : 'var(--nodeline)') + '" stroke-width="' + (sel ? 3 : 1.5) + '"/>' +
+      '<rect width="6" height="' + NH + '" fill="' + T.color + '"/>' +
+      '<g transform="translate(16,14) scale(1.05)" color="' + T.color + '">' + ICONS[n.type] + '</g>' +
+      '<text x="52" y="26" font-size="13" font-weight="600" fill="var(--nodefg)">' + esc(clip(n.props.name, 17)) + '</text>' +
+      '<text x="52" y="44" font-size="11" fill="var(--nodemuted)">' + esc(T.name) + '</text>' +
+      '<text x="16" y="66" font-size="11" fill="var(--nodemuted)" font-family="IBM Plex Mono, monospace">' + esc(clip(summaryLine(n), 30)) + '</text>' +
+      nodeIssueIcons(n, problems) + '</g>';
+  }).join('');
+}
+function applyView() { vp.setAttribute('transform', 'translate(' + state.view.x + ',' + state.view.y + ') scale(' + state.view.k + ')'); }
+function renderAll() {
+  const problems = lastProblems = validate();
+  renderEdges(); renderNodes(problems); applyView(); renderChecks(problems); renderProps();
+  $('#emptyState').style.display = state.nodes.length ? 'none' : 'flex';
+  autosave();
+}
+
+/* ---------- drag, link, zoom ---------- */
+let drag = null;
+function svgPoint(evt) {
+  const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+  const m = vp.getScreenCTM();
+  return m ? pt.matrixTransform(m.inverse()) : {x:0, y:0};
+}
+svg.addEventListener('pointerdown', e => {
+  const g = e.target.closest('.node'), p = svgPoint(e);
+  if (g) {
+    const n = byId(g.dataset.id);
+    if (linkFrom) { finishLink(n); return; }
+    select(n.id);
+    drag = {id:n.id, dx:p.x - n.x, dy:p.y - n.y};
+    g.classList.add('dragging'); svg.setPointerCapture(e.pointerId);
+  } else {
+    if (linkFrom) { linkFrom = null; setHint(''); return; }
+    select(null);
+    drag = {pan:true, sx:e.clientX, sy:e.clientY, vx:state.view.x, vy:state.view.y};
+    svg.setPointerCapture(e.pointerId);
+  }
+});
+svg.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (drag.pan) { state.view.x = drag.vx + (e.clientX - drag.sx); state.view.y = drag.vy + (e.clientY - drag.sy); applyView(); return; }
+  const p = svgPoint(e), n = byId(drag.id); if (!n) return;
+  n.x = Math.round((p.x - drag.dx) / 8) * 8; n.y = Math.round((p.y - drag.dy) / 8) * 8;
+  renderEdges(); renderNodes(lastProblems);
+});
+svg.addEventListener('pointerup', () => { if (drag && !drag.pan) autosave(); drag = null; $$('.node.dragging').forEach(g => g.classList.remove('dragging')); });
+svg.addEventListener('pointercancel', () => { drag = null; });
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const k = clamp(state.view.k * (e.deltaY > 0 ? .9 : 1.1), .25, 2.5);
+  const r = svg.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  state.view.x = mx - (mx - state.view.x) * (k / state.view.k);
+  state.view.y = my - (my - state.view.y) * (k / state.view.k);
+  state.view.k = k; applyView();
+}, {passive:false});
+function zoom(f) { state.view.k = clamp(state.view.k * f, .25, 2.5); applyView(); }
+function fit() {
+  if (!state.nodes.length) { state.view = {x:40, y:40, k:1}; applyView(); return; }
+  const xs = state.nodes.map(n => n.x), ys = state.nodes.map(n => n.y);
+  const minX = Math.min.apply(null, xs) - 40, minY = Math.min.apply(null, ys) - 40;
+  const maxX = Math.max.apply(null, xs) + NW + 40, maxY = Math.max.apply(null, ys) + NH + 40;
+  const r = svg.getBoundingClientRect();
+  const k = clamp(Math.min(r.width / (maxX - minX), r.height / (maxY - minY)), .25, 1.4);
+  state.view = {k, x: -minX * k + (r.width - (maxX - minX) * k) / 2, y: -minY * k + (r.height - (maxY - minY) * k) / 2};
+  applyView();
+}
+const LINK_RULES = [
+  ['alb','tg','targetGroup'], ['alb','subnet','subnets'], ['alb','sg','securityGroups'],
+  ['tg','ec2','targets'], ['tg','vpc','vpc'],
+  ['lt','sg','securityGroups'], ['lt','subnet','subnet'],
+  ['ec2','lt','launchTemplate'], ['ec2','subnet','subnet'], ['ec2','sg','securityGroups'],
+  ['sg','vpc','vpc'], ['subnet','vpc','vpc']
+];
+function startLink(id) { linkFrom = id; setHint('Now tap the service to connect to. Tap empty space to cancel.'); }
+function finishLink(target) {
+  const src = byId(linkFrom); linkFrom = null; setHint('');
+  if (!src || !target || src.id === target.id) return;
+  let rule = LINK_RULES.find(r => r[0] === src.type && r[1] === target.type), a = src, b = target;
+  if (!rule) { rule = LINK_RULES.find(r => r[0] === target.type && r[1] === src.type); if (rule) { a = target; b = src; } }
+  if (!rule) { toast('A ' + TYPES[src.type].name + ' cannot connect to a ' + TYPES[target.type].name, true); return; }
+  const f = TYPES[a.type].fields.find(x => x.k === rule[2]);
+  if (f.t === 'refs') { const arr = a.props[f.k] || []; if (!arr.includes(b.id)) arr.push(b.id); a.props[f.k] = arr; }
+  else a.props[f.k] = b.id;
+  toast('Connected: ' + a.props.name + ' → ' + b.props.name);
+  renderAll();
+}
+let hintTimer;
+function setHint(t) { const h = $('#hint'); h.textContent = t; h.style.display = t ? 'block' : 'none'; }
+function toast(msg, bad) { setHint(msg); clearTimeout(hintTimer); hintTimer = setTimeout(() => setHint(''), 3200); $('#hint').style.color = bad ? '#da1e28' : ''; }
+
+/* ---------- properties ---------- */
+function select(id) { state.selected = id; renderProps(); renderNodes(lastProblems); renderEdges(); }
+function refOptions(f, current) {
+  const list = ofType(f.of);
+  if (!list.length) return '<p class="text-sm text-red60">No ' + esc(TYPES[f.of].name.toLowerCase()) + ' on the canvas yet. Add one first.</p>';
+  if (f.t === 'ref') return '<select class="field" data-k="' + f.k + '"><option value="">— none —</option>' +
+    list.map(o => '<option value="' + o.id + '"' + (current === o.id ? ' selected' : '') + '>' + esc(o.props.name) + ' (' + esc(summaryLine(o)) + ')</option>').join('') + '</select>';
+  const cur = current || [];
+  return '<div class="border border-gray20 dark:border-gray80 p-2 space-y-1 max-h-44 overflow-y-auto scroll">' +
+    list.map(o => '<label class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 accent-blue60" data-k="' + f.k + '" value="' + o.id + '"' + (cur.includes(o.id) ? ' checked' : '') + '><span>' + esc(o.props.name) + ' <span class="text-gray60">' + esc(summaryLine(o)) + '</span></span></label>').join('') + '</div>';
+}
+function fieldHtml(n, f) {
+  const v = n.props[f.k];
+  const label = '<div class="flex items-baseline gap-2"><label class="font-medium text-sm" for="f_' + f.k + '">' + esc(f.l) + '</label>' + (f.req ? '<span class="chip text-red60">required</span>' : '') + '</div>';
+  let input = '';
+  if (f.t === 'text') input = '<input id="f_' + f.k + '" class="field" data-k="' + f.k + '" value="' + esc(v) + '" placeholder="' + esc(f.ph || '') + '">';
+  else if (f.t === 'num') input = '<input id="f_' + f.k + '" type="number" class="field" data-k="' + f.k + '" value="' + esc(v) + '">';
+  else if (f.t === 'bool') input = '<label class="flex items-center gap-2 text-sm"><input type="checkbox" class="accent-blue60 w-4 h-4" data-k="' + f.k + '"' + (v ? ' checked' : '') + '> <span>' + (v ? 'On' : 'Off') + '</span></label>';
+  else if (f.t === 'select') input = '<select id="f_' + f.k + '" class="field" data-k="' + f.k + '">' + f.opts.map(o => '<option value="' + esc(o) + '"' + (String(v) === String(o) ? ' selected' : '') + '>' + esc((f.optLabels && f.optLabels[o]) || o || '— none —') + '</option>').join('') + '</select>';
+  else if (f.t === 'area') input = '<textarea id="f_' + f.k + '" class="field ' + (f.mono ? 'font-mono text-sm' : '') + '" rows="' + (f.rows || 3) + '" data-k="' + f.k + '" placeholder="' + esc(f.ph || '') + '">' + esc(v) + '</textarea>';
+  else input = refOptions(f, v);
+  return '<div class="space-y-1">' + label + input + (f.help ? '<p class="text-sm text-gray60 dark:text-gray30">' + esc(f.help) + '</p>' : '') + '</div>';
+}
+function renderProps() {
+  const body = $('#propsBody'), n = byId(state.selected);
+  if (!n) {
+    body.innerHTML = '<p class="text-gray60 dark:text-gray30">Nothing is selected. Tap a box on the canvas to edit it, or add a service from the palette.</p>' +
+      '<div class="mt-4 space-y-2 text-sm">' +
+      '<p class="font-semibold">Badges</p>' +
+      '<p><span class="inline-block w-3 h-3 align-middle" style="background:#24a148"></span> ready to build</p>' +
+      '<p><span class="inline-block w-3 h-3 align-middle" style="background:#f1c21b"></span> works, but worth a second look</p>' +
+      '<p><span class="inline-block w-3 h-3 align-middle" style="background:#da1e28"></span> something required is missing</p>' +
+      '<p class="pt-2 font-semibold">Lines</p>' +
+      '<p><span style="color:#0f62fe">━</span> traffic path &nbsp; <span style="color:#24a148">━</span> attached to &nbsp; <span style="color:#8d8d8d">╌</span> lives inside</p>' +
+      '<p class="pt-2 font-semibold">This edition</p>' +
+      '<p class="text-gray60 dark:text-gray30">Generates private subnets only, internal or reused load balancers, and self-signed certificates. No internet gateway, no NAT, no public IPs.</p></div>';
+    return;
+  }
+  const T = TYPES[n.type];
+  body.innerHTML =
+    '<div class="flex items-start gap-2 mb-3"><svg viewBox="0 0 24 24" width="28" height="28" style="color:' + T.color + '">' + ICONS[n.type] + '</svg>' +
+    '<div class="min-w-0"><p class="font-semibold leading-tight">' + esc(T.name) + '</p><p class="text-sm text-gray60 dark:text-gray30">' + esc(T.plain) + '</p></div></div>' +
+    '<div class="flex flex-wrap gap-1 mb-4">' +
+      '<button class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm" data-act="explain">What is this?</button>' +
+      '<button class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm" data-act="link">Connect to…</button>' +
+      '<button class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm" data-act="dupe">Duplicate</button>' +
+      '<button class="px-2 py-1 border border-red60 text-red60 text-sm" data-act="del">Delete</button></div>' +
+    '<div class="space-y-4">' + T.fields.filter(f => shown(n, f)).map(f => fieldHtml(n, f)).join('') + '</div>' +
+    '<div class="mt-5 pt-3 border-t border-gray20 dark:border-gray80"><p class="font-semibold text-sm mb-1">Official documentation</p><ul class="space-y-1 text-sm">' +
+    T.docs.map(d => '<li><a class="text-blue70 dark:text-blue20 underline" target="_blank" rel="noopener" href="' + d[1] + '">' + esc(d[0]) + '</a></li>').join('') + '</ul></div>';
+
+  body.oninput = e => {
+    const el = e.target, k = el.dataset.k; if (!k) return;
+    const f = T.fields.find(x => x.k === k);
+    if (f.t === 'refs') n.props[k] = $$('input[type=checkbox][data-k="' + k + '"]', body).filter(b => b.checked).map(b => b.value);
+    else if (f.t === 'bool') n.props[k] = el.checked;
+    else if (f.t === 'num') n.props[k] = el.value === '' ? '' : Number(el.value);
+    else n.props[k] = el.value;
+    const keep = document.activeElement === el ? {k, pos: el.selectionStart} : null;
+    lastProblems = validate();
+    renderEdges(); renderNodes(lastProblems); renderChecks(lastProblems); autosave();
+    if (f.t === 'bool' || f.t === 'ref' || f.t === 'refs' || f.t === 'select') renderProps();
+    if (keep) { const el2 = $('[data-k="' + keep.k + '"]', body); if (el2 && el2.setSelectionRange) { el2.focus(); try { el2.setSelectionRange(keep.pos, keep.pos); } catch (x) {} } }
+  };
+  body.onclick = e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    if (b.dataset.act === 'del') deleteNode(n.id);
+    if (b.dataset.act === 'dupe') { const c = addNode(n.type, n.x + 24, n.y + 24, JSON.parse(JSON.stringify(n.props))); select(c.id); renderAll(); }
+    if (b.dataset.act === 'link') { startLink(n.id); closeDrawers(); }
+    if (b.dataset.act === 'explain') openModal('service', n.type);
+  };
+}
+function deleteNode(id) {
+  state.nodes = state.nodes.filter(n => n.id !== id);
+  state.nodes.forEach(n => TYPES[n.type].fields.forEach(f => {
+    if (f.t === 'ref' && n.props[f.k] === id) n.props[f.k] = '';
+    if (f.t === 'refs') n.props[f.k] = (n.props[f.k] || []).filter(x => x !== id);
+  }));
+  state.selected = null; renderAll();
+}
+
+/* ---------- validation ---------- */
+const PUBLIC_SRC = /^0\.0\.0\.0\/0$|^::\/0$/;
+const isPrivateCidr = c => /^10\./.test(c) || /^192\.168\./.test(c) || /^172\.(1[6-9]|2\d|3[01])\./.test(c);
+
+function validate() {
+  const out = [];
+  const add = (level, node, msg, fix) => out.push({level, node, msg, fix});
+  if (!state.nodes.length) return out;
+  if (!ofType('vpc').length) add('error', null, 'There is no VPC. Everything else needs a network to live in.', 'Add a VPC from the palette.');
+
+  state.nodes.forEach(n => {
+    const T = TYPES[n.type], p = n.props;
+    T.fields.forEach(f => {
+      if (!f.req || !shown(n, f)) return;
+      const v = p[f.k];
+      const empty = f.t === 'refs' ? !(v && v.length) : (v === '' || v === null || v === undefined);
+      if (empty) add('error', n.id, T.name + ' "' + p.name + '" is missing ' + f.l.toLowerCase() + '.', 'Open it and fill in ' + f.l + '.');
+    });
+
+    if (n.type === 'vpc') {
+      if (p.cidr && !/^\d+\.\d+\.\d+\.\d+\/\d{1,2}$/.test(p.cidr)) add('error', n.id, 'VPC "' + p.name + '" has a CIDR that does not look right.', 'Use something like 10.0.0.0/16.');
+      if (!p.s3Endpoint) add('warn', n.id, 'VPC "' + p.name + '" has no S3 gateway endpoint, so dnf and yum will hang with no internet route.', 'Turn it on. It is free.');
+      if (!p.ifaceEndpoints) add('warn', n.id, 'VPC "' + p.name + '" has no interface endpoints, so Session Manager cannot reach these instances.', 'Turn them on if you need a shell, or accept that the only way in is your own VPN.');
+    }
+    if (n.type === 'subnet') {
+      if (p.cidr && !/^\d+\.\d+\.\d+\.\d+\/\d{1,2}$/.test(p.cidr)) add('error', n.id, 'Subnet "' + p.name + '" has a CIDR that does not look right.', 'Use something like 10.0.1.0/24.');
+      const twin = ofType('subnet').filter(s => s.id !== n.id && s.props.cidr === p.cidr && s.props.vpc === p.vpc);
+      if (p.cidr && twin.length) add('error', n.id, 'Subnet "' + p.name + '" uses the same CIDR as "' + twin[0].props.name + '".', 'Give each subnet its own range.');
+      const sameAz = ofType('subnet').filter(s => s.id !== n.id && s.props.vpc === p.vpc && s.props.az === p.az);
+      if (sameAz.length) add('error', n.id, 'Subnet "' + p.name + '" and "' + sameAz[0].props.name + '" are both in zone ' + p.az + '.', 'The vpc module creates one private subnet per Availability Zone, so give each subnet its own zone.');
+    }
+    if (n.type === 'sg') {
+      const rules = (p.ingress || '').split('\n').map(s => s.trim()).filter(Boolean);
+      if (!rules.length) add('warn', n.id, 'Security group "' + p.name + '" has no inbound rules, so nothing can reach it.', 'Add a rule like tcp:8443:app-alb-sg.');
+      rules.forEach(r => {
+        if (!/^\w+:\d+(-\d+)?:.+$/.test(r)) { add('error', n.id, 'Rule "' + r + '" in "' + p.name + '" is not in the protocol:port:source shape.', 'Example: tcp:8443:10.0.0.0/16'); return; }
+        const src = r.split(':').slice(2).join(':');
+        const named = ofType('sg').some(g => g.props.name === src);
+        if (PUBLIC_SRC.test(src)) add('error', n.id, 'Security group "' + p.name + '" allows ' + src + ', which is the whole internet. This design is private only.', 'Name another security group, or use an internal range like 10.0.0.0/16.');
+        else if (!named && /\//.test(src) && !isPrivateCidr(src)) add('warn', n.id, 'Source ' + src + ' in "' + p.name + '" is not a private address range.', 'Double check it is somewhere you actually control.');
+        if (/^tcp:22:/.test(r)) add('warn', n.id, 'Security group "' + p.name + '" opens SSH. With no bastion and no public address, Session Manager is usually a better answer.', 'Remove the rule and use an SSM interface endpoint.');
+      });
+    }
+    if (n.type === 'tg') {
+      if (!(p.targets || []).length) add('warn', n.id, 'Target group "' + p.name + '" has no instances, so the load balancer has nowhere to send traffic.', 'Tick the EC2 instances that should serve traffic.');
+      if (p.hcPath && p.hcPath[0] !== '/') add('error', n.id, 'Health check path in "' + p.name + '" must start with a slash.', 'Try /health or just /.');
+      if (p.protocol === 'HTTP') add('warn', n.id, 'Target group "' + p.name + '" talks to the instances over plain HTTP.', 'Switch to HTTPS and let the instance use its self-signed certificate. The load balancer does not verify it.');
+      if (p.hcProtocol && p.hcProtocol !== p.protocol) add('warn', n.id, 'Target group "' + p.name + '" health checks over ' + p.hcProtocol + ' but serves ' + p.protocol + '.', 'The target-group module checks over the traffic protocol only. The generated code says so in a comment; add a health_check_protocol variable to the module if you need this.');
+    }
+    if (n.type === 'alb') {
+      const tg = byId(p.targetGroup);
+      if (p.source === 'existing') {
+        if (p.rulePriority && (p.rulePriority < 1 || p.rulePriority > 50000)) add('error', n.id, 'Rule priority on "' + p.name + '" must be between 1 and 50000.', 'Pick a number no other rule on that listener uses.');
+        if (!p.ruleHost && (!p.rulePath || p.rulePath === '/*')) add('warn', n.id, 'The rule on "' + p.name + '" matches every path with no host condition, so it will catch traffic meant for other applications.', 'Add a host header, or a narrower path like /app/*.');
+        const dupe = ofType('alb').filter(a => a.id !== n.id && a.props.source === 'existing' && a.props.existingName === p.existingName && +a.props.existingPort === +p.existingPort && +a.props.rulePriority === +p.rulePriority);
+        if (dupe.length) add('error', n.id, 'Two rules on ' + p.existingName + ' both use priority ' + p.rulePriority + '.', 'Priorities must be unique per listener.');
+      } else {
+        const subs = (p.subnets || []).map(byId).filter(Boolean);
+        if (subs.length < 2) add('error', n.id, 'Load balancer "' + p.name + '" needs at least two subnets.', 'Tick a second private subnet.');
+        if (subs.length >= 2 && new Set(subs.map(s => s.props.az)).size < 2) add('error', n.id, 'Load balancer "' + p.name + '" uses subnets that are all in the same zone.', 'Pick subnets in two different Availability Zones.');
+        if (!(p.securityGroups || []).length) add('error', n.id, 'Load balancer "' + p.name + '" has no security group.', 'Attach one that allows the listener port from your internal network.');
+        if (p.listenProtocol === 'HTTPS' && p.certMode === 'acm' && !p.certArn) add('error', n.id, 'Load balancer "' + p.name + '" is set to use an existing ACM certificate but no ARN is filled in.', 'Paste the ARN, or switch to a generated self-signed certificate.');
+        if (p.listenProtocol === 'HTTP') add('warn', n.id, 'Load balancer "' + p.name + '" listens on plain HTTP.', 'Use HTTPS with a generated self-signed certificate. It costs nothing.');
+        add('warn', n.id, 'Creating load balancer "' + p.name + '" adds an hourly charge.', 'If the account already has an internal load balancer, switch this to reuse and add a rule instead.');
+        if (tg && tg.props.vpc && subs.length && subs[0].props.vpc && tg.props.vpc !== subs[0].props.vpc) add('error', n.id, 'Load balancer "' + p.name + '" and its target group are in different VPCs.', 'They must share one VPC.');
+      }
+    }
+    if (n.type === 'lt') {
+      if (p.ami && !/^ami-[0-9a-f]{8,17}$/.test(p.ami)) add('warn', n.id, 'The AMI in "' + p.name + '" does not look like an AMI ID.', 'Leave it blank and the module resolves the latest Amazon Linux 2023 for you.');
+      const arm = /^(t4g|m7g|c7g|r7g|m6g|c6g|r6g)\./.test(p.instanceType || '');
+      if (p.arch === 'arm64' && p.instanceType && !arm) add('error', n.id, 'Launch template "' + p.name + '" says arm64 but ' + p.instanceType + ' is an x86 instance type.', 'An x86 image will not boot on arm64. Match them, or switch the architecture to x86_64.');
+      if (p.arch === 'x86_64' && arm) add('error', n.id, 'Launch template "' + p.name + '" says x86_64 but ' + p.instanceType + ' is a Graviton instance type.', 'Switch the architecture to arm64.');
+      if (p.iamMode === 'existing' && !p.iamProfile) add('error', n.id, 'Launch template "' + p.name + '" is set to use an existing instance profile but none is named.', 'Type the profile name, or let the module create one.');
+      if (p.iamMode === 'create' && !String(p.iamPolicies || '').trim()) add('warn', n.id, 'The profile for "' + p.name + '" has no policies attached, so it grants nothing.', 'Add AmazonSSMManagedInstanceCore at least.');
+      if (p.userData && !/^#!/.test(p.userData.trim()) && !/^#cloud-config/.test(p.userData.trim())) add('warn', n.id, 'User data in "' + p.name + '" does not start with #!/bin/bash, so it may not run.', 'Put #!/bin/bash on the very first line.');
+      if (p.iamMode === 'none') add('warn', n.id, 'Launch template "' + p.name + '" has no instance profile, so there is no way to open a shell on these machines.', 'Let the module create one with AmazonSSMManagedInstanceCore.');
+      if (p.keyName) add('warn', n.id, 'Launch template "' + p.name + '" sets an SSH key, but nothing can reach port 22 from outside the VPC.', 'Leave it blank and use Session Manager.');
+      // only real commands, not comments, and the instance metadata address is not the internet
+      const cmds = String(p.userData || '').split('\n').filter(l => !/^\s*#/.test(l));
+      const fetches = cmds.some(l => /\b(curl|wget|git\s+clone)\b[^\n]*https?:\/\/(?!169\.254\.169\.254)/.test(l));
+      const pulls = cmds.some(l => /\b(docker|podman)\s+(pull|run)\b/.test(l) && /\b(docker\.io|quay\.io|ghcr\.io|registry\.k8s\.io)\b/.test(l));
+      if (fetches || pulls) add('error', n.id, 'User data in "' + p.name + '" downloads from the public internet, which cannot work in a private subnet.', 'Mirror the artifact to S3 or ECR, or bake it into the AMI.');
+    }
+    if (n.type === 'ec2') {
+      if (!p.launchTemplate && !p.ami) add('error', n.id, 'Instance "' + p.name + '" has no launch template and no AMI, so there is nothing to boot.', 'Pick a launch template.');
+      if (!p.launchTemplate && !(p.securityGroups || []).length) add('error', n.id, 'Instance "' + p.name + '" has no security group.', 'Attach one, or use a launch template.');
+      if (ofType('tg').length && !ofType('tg').some(t => (t.props.targets || []).includes(n.id))) add('warn', n.id, 'Instance "' + p.name + '" is not in any target group, so the load balancer will ignore it.', 'Add it to a target group.');
+    }
+  });
+
+  // does anything actually let the load balancer reach the instances?
+  ofType('alb').forEach(a => {
+    const tg = byId(a.props.targetGroup); if (!tg) return;
+    const port = String(tg.props.port);
+    const albSgNames = a.props.source === 'create' ? (a.props.securityGroups || []).map(byId).filter(Boolean).map(s => s.props.name) : [];
+    (tg.props.targets || []).map(byId).filter(Boolean).forEach(ins => {
+      const lt = byId(ins.props.launchTemplate);
+      const sgs = ((lt ? lt.props.securityGroups : ins.props.securityGroups) || []).map(byId).filter(Boolean);
+      if (!sgs.length) return;
+      const opens = sgs.some(sg => (sg.props.ingress || '').split('\n').some(r => r.split(':')[1] === port));
+      if (opens) return;
+      if (a.props.source === 'existing' && a.props.openExistingSg) return; // generator emits the rule for you
+      add('error', ins.id, 'Nothing lets the load balancer reach "' + ins.props.name + '" on port ' + port + '.',
+        'Add tcp:' + port + ':' + (albSgNames[0] || '10.0.0.0/16') + ' to its security group.');
+    });
+  });
+  if (ofType('ec2').length === 1 && ofType('alb').length) add('warn', null, 'Only one instance is behind the load balancer, so there is no redundancy.', 'Add a second instance in another zone.');
+  ofType('lt').forEach(lt => {
+    const members = ofType('ec2').filter(e => e.props.launchTemplate === lt.id);
+    if (!members.length) return;
+    const p = lt.props;
+    const zones = new Set(members.map(m => byId(m.props.subnet)).filter(Boolean).map(x => x.props.az));
+    if (zones.size === 1) add('warn', lt.id, 'Every instance from "' + p.name + '" is in zone ' + Array.from(zones)[0] + '.', 'Spread them across two zones so the Auto Scaling Group can survive one going away.');
+    if (p.asgMax !== '' && p.asgMin !== '' && +p.asgMax < +p.asgMin) add('error', lt.id, 'Auto Scaling maximum on "' + p.name + '" is below the minimum.', 'Raise the maximum.');
+    if (p.asgMax !== '' && +p.asgMax < members.length) add('error', lt.id, 'Auto Scaling maximum on "' + p.name + '" is ' + p.asgMax + ' but ' + members.length + ' instances are drawn.', 'The instance count becomes desired capacity, which cannot exceed the maximum.');
+  });
+  return out;
+}
+function renderChecks(problems) {
+  problems = problems || validate();
+  const errs = problems.filter(p => p.level === 'error').length, warns = problems.length - errs;
+  const c = $('#checkCount');
+  c.textContent = errs + ' blocking · ' + warns + ' to review';
+  c.className = 'chip ' + (errs ? 'text-red60' : warns ? 'text-gray60' : 'text-green50');
+  const list = $('#checkList');
+  if (!problems.length) { list.innerHTML = '<li class="px-3 py-3 text-green50">Everything required is filled in. Open Generate code when you are ready.</li>'; return; }
+  list.innerHTML = problems.map(p =>
+    '<li class="px-3 py-2 flex gap-3 items-start ' + (p.node ? 'cursor-pointer hover:bg-gray10 dark:hover:bg-gray90' : '') + '" data-goto="' + (p.node || '') + '">' +
+    '<span class="chip shrink-0 mt-0.5 ' + (p.level === 'error' ? 'text-red60' : 'text-gray60') + '">' + (p.level === 'error' ? 'fix' : 'check') + '</span>' +
+    '<span><span class="font-medium">' + esc(p.msg) + '</span>' + (p.fix ? ' <span class="text-gray60 dark:text-gray30">' + esc(p.fix) + '</span>' : '') + '</span></li>').join('');
+}
+$('#checkList').addEventListener('click', e => {
+  const li = e.target.closest('[data-goto]');
+  if (!li || !li.dataset.goto) return;
+  select(li.dataset.goto);
+  if (window.innerWidth < 1024) openDrawer('props');
+});
+
+/* =========================================================================
+   TERRAFORM GENERATOR — emits calls to the shared module library.
+
+   Every resource comes from ./modules/<name>. Two things about that library
+   shape the output and are worth knowing before you read it:
+
+     · the vpc module creates its own subnets from a list of CIDRs, one per
+       Availability Zone. So a subnet drawn on the canvas is not its own
+       resource here: it becomes an entry in private_subnet_cidrs, and
+       anything pointing at it references module.vpc_x.private_subnet_ids[i].
+
+     · there is an asg module but no single-instance module. Instances that
+       share a launch template are therefore emitted as one Auto Scaling
+       Group. The ASG registers and deregisters targets by itself, which is
+       why no target group attachments appear anywhere below.
+   ========================================================================= */
+const MODULE_ROOT = './modules';
+function needsSelfSigned() {
+  return ofType('alb').some(a => a.props.source === 'create' && a.props.listenProtocol === 'HTTPS' && a.props.certMode === 'selfsigned');
+}
+function heredoc(text, indent) {
+  // Terraform reads ${...} and %{...} inside heredocs as its own template syntax
+  const safe = String(text || '').replace(/\$\{/g, '$${').replace(/%\{/g, '%%{');
+  return safe.split('\n').map(l => indent + l).join('\n');
+}
+const mName = (prefix, n) => prefix + '_' + tfName(n.props.name);
+const vpcModule = n => 'module.' + mName('vpc', n);
+const sgRef = id => { const n = byId(id); return n ? 'module.' + mName('sg', n) + '.security_group_id' : '""'; };
+const tgRef = id => { const n = byId(id); return n ? 'module.' + mName('tg', n) + '.target_group_arn' : '""'; };
+
+// subnets in the order the vpc module creates them: sorted by Availability Zone
+function subnetsOfVpc(v) {
+  return ofType('subnet').filter(s => s.props.vpc === v.id).slice()
+    .sort((a, b) => String(a.props.az).localeCompare(String(b.props.az)));
+}
+function subnetRef(id) {
+  const s = byId(id); if (!s) return '""';
+  const v = byId(s.props.vpc); if (!v) return '""';
+  const i = subnetsOfVpc(v).findIndex(x => x.id === s.id);
+  return vpcModule(v) + '.private_subnet_ids[' + (i < 0 ? 0 : i) + ']';
+}
+function block(name, label, src, lines) {
+  let s = 'module "' + label + '" {\n  source = "' + MODULE_ROOT + '/' + src + '"\n\n';
+  const w = Math.max.apply(null, lines.filter(l => Array.isArray(l)).map(l => l[0].length).concat([1]));
+  lines.forEach(l => {
+    if (l === '') { s += '\n'; return; }
+    if (typeof l === 'string') { s += '  ' + l + '\n'; return; }
+    s += '  ' + l[0] + ' '.repeat(w - l[0].length) + ' = ' + l[1] + (l[2] ? '  # ' + l[2] : '') + '\n';
+  });
+  return s + '}\n\n';
+}
+const q = v => '"' + String(v == null ? '' : v) + '"';
+const qlist = a => '[' + a.map(q).join(', ') + ']';
+const rlist = a => '[' + a.join(', ') + ']';
+
+// one ingress_rules map entry per line of the security group's rule text
+function ingressMap(sg, indent) {
+  const used = {};
+  const rules = (sg.props.ingress || '').split('\n').map(x => x.trim()).filter(Boolean).map(rule => {
+    const bits = rule.split(':'); if (bits.length < 3) return null;
+    const proto = bits[0], range = bits[1], src = bits.slice(2).join(':');
+    const from = range.split('-')[0], to = range.split('-')[1] || from;
+    let key = tfName(proto + '_' + range + '_from_' + src);
+    if (used[key]) key = key + '_' + (++used[key]); else used[key] = 1;
+    const named = ofType('sg').find(g => g.props.name === src);
+    const source = named
+      ? ['referenced_security_group_id', 'module.' + mName('sg', named) + '.security_group_id']
+      : ['cidr_ipv4', q(src)];
+    return {key, proto, from, to, src, source};
+  }).filter(Boolean);
+  if (!rules.length) return '{}';
+  let s = '{\n';
+  rules.forEach(r => {
+    s += indent + '  ' + r.key + ' = {\n';
+    s += indent + '    description                  = ' + q('allow ' + r.proto + ' ' + r.from + ' from ' + r.src) + '\n';
+    s += indent + '    from_port                    = ' + r.from + '\n';
+    s += indent + '    to_port                      = ' + r.to + '\n';
+    s += indent + '    ip_protocol                  = ' + q(r.proto) + '\n';
+    s += indent + '    ' + r.source[0] + ' '.repeat(29 - r.source[0].length) + '= ' + r.source[1] + '\n';
+    s += indent + '  }\n';
+  });
+  return s + indent + '}';
+}
+
+// instances are grouped into one Auto Scaling Group per launch template
+function asgGroups() {
+  return ofType('lt').map(lt => {
+    const members = ofType('ec2').filter(e => e.props.launchTemplate === lt.id);
+    if (!members.length) return null;
+    const subs = [];
+    members.forEach(m => { if (m.props.subnet && !subs.includes(m.props.subnet)) subs.push(m.props.subnet); });
+    if (!subs.length && lt.props.subnet) subs.push(lt.props.subnet);
+    const tgs = ofType('tg').filter(t => (t.props.targets || []).some(id => members.some(m => m.id === id)));
+    return {lt, members, subs, tgs};
+  }).filter(Boolean);
+}
+
+function genTerraform() {
+  const vpc0 = ofType('vpc')[0];
+  const region = vpc0 ? vpc0.props.region : 'us-east-1';
+  const TAGS = '{\n    ManagedBy = "aws-solution-builder"\n  }';
+  let s = '';
+
+  s += '# =============================================================================\n';
+  s += '# Generated by AWS Solution Builder — private-only profile, module edition.\n';
+  s += '# -----------------------------------------------------------------------------\n';
+  s += '# Every resource comes from the shared module library. Put the modules folder\n';
+  s += '# beside this file:\n';
+  s += '#\n';
+  s += '#   main.tf\n';
+  s += '#   modules/\n';
+  s += '#     vpc/  security-group/  target-group/  alb/  launch-template/\n';
+  s += '#     asg/  vpc-endpoints/   iam-instance-profile/\n';
+  s += '#\n';
+  s += '# or replace every source with a Git reference such as\n';
+  s += '#   source = "git::https://github.com/your-org/tf-modules.git//vpc?ref=v1.2.0"\n';
+  s += '#\n';
+  s += '# What this design will and will not do:\n';
+  s += '#   · private subnets only. public_subnet_cidrs is empty, so the vpc module\n';
+  s += '#     creates no internet gateway, and enable_nat_gateway stays false.\n';
+  s += '#   · load balancers are internal, or an existing one is reused and only a\n';
+  s += '#     listener rule is added.\n';
+  s += '#   · TLS uses self-signed certificates imported into ACM. Importing is free.\n';
+  s += '#   · the S3 gateway endpoint is on because it costs nothing; interface\n';
+  s += '#     endpoints are opt-in because they do not.\n';
+  s += '#\n';
+  s += '# Review every line before running.\n';
+  s += '# =============================================================================\n\n';
+
+  s += 'terraform {\n  required_version = ">= 1.9.0"\n\n  required_providers {\n    aws = {\n      source  = "hashicorp/aws"\n      version = ">= 6.0"\n    }\n';
+  if (needsSelfSigned()) s += '    tls = {\n      source  = "hashicorp/tls"\n      version = "~> 4.0"\n    }\n';
+  s += '  }\n}\n\n';
+  s += 'provider "aws" {\n  region = "' + region + '"\n}\n\n';
+
+  /* ---- networks ---- */
+  ofType('vpc').forEach(v => {
+    const p = v.props, subs = subnetsOfVpc(v);
+    s += '# =============================================================================\n# Network: ' + p.name + '\n# =============================================================================\n\n';
+    if (subs.length) {
+      s += '# The vpc module builds one private subnet per Availability Zone, in this\n# order. Reference them by index:\n';
+      subs.forEach((x, i) => { s += '#   private_subnet_ids[' + i + ']  ' + x.props.name + '  ' + x.props.cidr + '  ' + p.region + x.props.az + '  (' + (x.props.role || 'application') + ')\n'; });
+      s += '\n';
+    }
+    s += block('vpc', mName('vpc', v), 'vpc', [
+      ['name', q(p.name)],
+      ['cidr_block', q(p.cidr)],
+      '',
+      '# Nothing public. An empty public_subnet_cidrs means the module creates no',
+      '# internet gateway at all, so there is no way in and no way out.',
+      ['availability_zones', qlist(subs.map(x => p.region + x.props.az))],
+      ['private_subnet_cidrs', qlist(subs.map(x => x.props.cidr))],
+      ['public_subnet_cidrs', '[]'],
+      '',
+      ['enable_nat_gateway', 'false', 'about $32/month, and it would create a way out'],
+      ['enable_s3_gateway_endpoint', String(!!p.s3Endpoint), 'free; this is what makes dnf work'],
+      ['enable_dns_hostnames', String(!!p.dns), 'required for private DNS on endpoints'],
+      '',
+      ['tags', TAGS]
+    ]);
+
+    if (p.ifaceEndpoints) {
+      const svcs = String(p.ifaceServices || '').split(',').map(x => x.trim()).filter(Boolean);
+      s += '# Interface endpoints are billed per hour per Availability Zone. The module\n';
+      s += '# reports the running total as an output, printed at the end of every apply.\n\n';
+      s += block('sg', mName('sg', v) + '_vpce', 'security-group', [
+        ['name', q(p.name + '-vpce')],
+        ['description', q('HTTPS from inside the VPC to the interface endpoints')],
+        ['vpc_id', vpcModule(v) + '.vpc_id'],
+        '',
+        ['ingress_rules', '{\n    https_from_vpc = {\n      description = "HTTPS from anything inside the VPC"\n      from_port   = 443\n      to_port     = 443\n      cidr_ipv4   = ' + vpcModule(v) + '.vpc_cidr_block\n    }\n  }'],
+        '',
+        ['tags', TAGS]
+      ]);
+      s += block('endpoints', mName('endpoints', v), 'vpc-endpoints', [
+        ['name', q(p.name)],
+        ['vpc_id', vpcModule(v) + '.vpc_id'],
+        ['subnet_ids', vpcModule(v) + '.private_subnet_ids'],
+        ['security_group_ids', rlist(['module.' + mName('sg', v) + '_vpce.security_group_id'])],
+        '',
+        ['interface_endpoints', qlist(svcs)],
+        ['gateway_endpoints', '[]', 'the vpc module already made the free S3 one'],
+        '',
+        ['tags', TAGS]
+      ]);
+      s += 'output "' + mName('endpoints', v) + '_cost" {\n  description = "What the interface endpoints add to the monthly bill."\n  value       = module.' + mName('endpoints', v) + '.estimated_monthly_cost\n}\n\n';
+    }
+  });
+
+  /* ---- security groups ---- */
+  if (ofType('sg').length) s += '# =============================================================================\n# Security groups\n# =============================================================================\n\n';
+  ofType('sg').forEach(sg => {
+    const p = sg.props, v = byId(p.vpc);
+    s += block('sg', mName('sg', sg), 'security-group', [
+      ['name', q(p.name)],
+      ['description', q(p.desc || p.name)],
+      ['vpc_id', v ? vpcModule(v) + '.vpc_id' : '""'],
+      '',
+      ['ingress_rules', ingressMap(sg, '  ')],
+      '',
+      ['allow_all_egress', String(!!p.egressAll), 'no internet route anyway; this reaches the VPC and its endpoints'],
+      ['tags', TAGS]
+    ]);
+  });
+
+  /* ---- self-signed certificates ---- */
+  const ssl = ofType('alb').filter(a => a.props.source === 'create' && a.props.listenProtocol === 'HTTPS' && a.props.certMode === 'selfsigned');
+  if (ssl.length) {
+    s += '# =============================================================================\n';
+    s += '# Certificates\n';
+    s += '# -----------------------------------------------------------------------------\n';
+    s += '# These are raw resources rather than the acm-certificate module on purpose.\n';
+    s += '# That module validates through a public Route 53 hosted zone, which an\n';
+    s += '# internal-only name does not have. A private CA in ACM would validate\n';
+    s += '# properly but costs around $400 a month, so a self-signed certificate\n';
+    s += '# imported into ACM is the free answer. Importing is not charged.\n';
+    s += '# Clients will warn until the certificate is in their trust store.\n';
+    s += '# =============================================================================\n\n';
+    ssl.forEach(a => {
+      const p = a.props, r = tfName(p.name), cn = p.certDomain || 'app.internal', days = +p.certDays || 825;
+      s += 'resource "tls_private_key" "' + r + '" {\n  algorithm = "RSA"\n  rsa_bits  = 2048\n}\n\n';
+      s += 'resource "tls_self_signed_cert" "' + r + '" {\n  private_key_pem = tls_private_key.' + r + '.private_key_pem\n\n';
+      s += '  subject {\n    common_name  = "' + cn + '"\n    organization = "Internal"\n  }\n\n';
+      s += '  dns_names             = ["' + cn + '"]\n  validity_period_hours = ' + (days * 24) + '\n  early_renewal_hours   = 720\n\n';
+      s += '  allowed_uses = [\n    "key_encipherment",\n    "digital_signature",\n    "server_auth",\n  ]\n}\n\n';
+      s += 'resource "aws_acm_certificate" "' + r + '" {\n  private_key      = tls_private_key.' + r + '.private_key_pem\n  certificate_body = tls_self_signed_cert.' + r + '.cert_pem\n\n';
+      s += '  lifecycle {\n    create_before_destroy = true\n  }\n\n  tags = { Name = "' + p.name + '-selfsigned" }\n}\n\n';
+    });
+  }
+
+  /* ---- instance profiles ---- */
+  const iamLts = ofType('lt').filter(l => l.props.iamMode === 'create');
+  if (iamLts.length) {
+    s += '# =============================================================================\n# Instance profiles\n# -----------------------------------------------------------------------------\n# With no public address and no bastion, Session Manager is the only way to open\n# a shell, and it needs AmazonSSMManagedInstanceCore plus the ssm, ssmmessages\n# and ec2messages interface endpoints.\n# =============================================================================\n\n';
+    iamLts.forEach(lt => {
+      const pol = String(lt.props.iamPolicies || '').split(',').map(x => x.trim()).filter(Boolean);
+      s += block('iam', mName('iam', lt), 'iam-instance-profile', [
+        ['name', q(lt.props.name + '-profile')],
+        ['trusted_service', q('ec2.amazonaws.com')],
+        '',
+        ['managed_policy_arns', pol.length ? '[\n    ' + pol.map(q).join(',\n    ') + ',\n  ]' : '[]'],
+        '',
+        ['tags', TAGS]
+      ]);
+    });
+  }
+
+  /* ---- launch templates ---- */
+  if (ofType('lt').length) s += '# =============================================================================\n# Launch templates\n# =============================================================================\n\n';
+  ofType('lt').forEach(lt => {
+    const p = lt.props;
+    const lines = [['name', q(p.name)]];
+    if (p.ami) lines.push(['ami_id', q(p.ami)], ['architecture', q(p.arch || 'x86_64'), 'ignored while ami_id is set']);
+    else lines.push('# ami_id omitted, so the module resolves the newest Amazon Linux 2023',
+                    '# image from the public SSM parameter. Better than pinning an ID that',
+                    '# is region-specific and goes stale with every patch.',
+                    ['architecture', q(p.arch || 'x86_64'), 'must match instance_type']);
+    lines.push(['instance_type', q(p.instanceType)]);
+    if (p.keyName) lines.push(['key_name', q(p.keyName)]);
+    lines.push('',
+      ['security_group_ids', rlist((p.securityGroups || []).map(sgRef))]);
+    if (p.iamMode === 'create') lines.push(['iam_instance_profile_name', 'module.' + mName('iam', lt) + '.instance_profile_name']);
+    else if (p.iamMode === 'existing' && p.iamProfile) lines.push(['iam_instance_profile_name', q(p.iamProfile)]);
+    lines.push(['associate_public_ip_address', 'false', 'private subnets; never give these a public address'],
+      '',
+      ['root_volume_size', String(p.volumeSize || 20)],
+      ['root_volume_encrypted', 'true'],
+      ['http_tokens', q(p.imdsv2 ? 'required' : 'optional')],
+      ['http_put_response_hop_limit', String(p.imdsHops || 1), (+p.imdsHops > 1 ? 'raised so containers can reach instance metadata' : 'containers on this host cannot reach metadata')],
+      ['enable_detailed_monitoring', String(!!p.monitoring)]);
+    if (p.userData) lines.push('', ['user_data', '<<-USERDATA\n' + heredoc(String(p.userData).replace(/\s+$/, ''), '    ') + '\n  USERDATA']);
+    lines.push('', ['instance_tags', '{\n    Name      = "' + p.name + '"\n    ManagedBy = "aws-solution-builder"\n  }'], ['tags', TAGS]);
+    s += block('lt', mName('lt', lt), 'launch-template', lines);
+  });
+
+  /* ---- target groups ---- */
+  if (ofType('tg').length) {
+    s += '# =============================================================================\n# Target groups\n# -----------------------------------------------------------------------------\n# No target group attachments appear anywhere below. The asg module registers\n# every instance it launches and deregisters it before termination.\n# =============================================================================\n\n';
+  }
+  ofType('tg').forEach(tg => {
+    const p = tg.props, v = byId(p.vpc);
+    s += block('tg', mName('tg', tg), 'target-group', [
+      ['name', q(p.name)],
+      ['vpc_id', v ? vpcModule(v) + '.vpc_id' : '""'],
+      ['port', String(p.port)],
+      ['protocol', q(p.protocol), p.protocol === 'HTTPS' ? 'the instance self-signed cert; the ALB does not verify it' : ''],
+      ['target_type', q('instance')],
+      '',
+      ['health_check_path', q(p.hcPath)],
+      ['health_check_port', q(p.hcPort || 'traffic-port')],
+      ['health_check_matcher', q(p.hcMatcher || '200')],
+      ['health_check_interval', String(p.hcInterval || 30)],
+      ['healthy_threshold', String(p.healthy || 2)],
+      ['unhealthy_threshold', String(p.unhealthy || 3)],
+      '',
+      ['deregistration_delay', String(p.deregDelay || 30)],
+      ['stickiness_enabled', String(!!p.stickiness)],
+      '',
+      ['tags', TAGS]
+    ]);
+    if (p.hcProtocol && p.hcProtocol !== p.protocol) {
+      s += '# NOTE: the target-group module always health checks over ' + p.protocol + ', the same\n';
+      s += '# protocol as the traffic. This design asks for ' + p.hcProtocol + ' checks on port ' +
+           (p.hcPort || 'traffic-port') + ', so either\n# add a health_check_protocol variable to the module, or serve the health\n# endpoint over ' + p.protocol + ' as well.\n\n';
+    }
+  });
+
+  /* ---- load balancers ---- */
+  ofType('alb').forEach(a => {
+    const p = a.props, r = tfName(p.name), tg = byId(p.targetGroup);
+    if (p.source === 'existing') {
+      s += '# =============================================================================\n';
+      s += '# ' + p.name + ': reuses the existing load balancer "' + p.existingName + '"\n';
+      s += '# -----------------------------------------------------------------------------\n';
+      s += '# The alb module always creates a load balancer, so it is deliberately not\n';
+      s += '# used here. Data sources are read only: this can never change or destroy\n';
+      s += '# the shared load balancer, and adding a listener rule carries no charge.\n';
+      s += '# The certificate already on that listener is reused as is.\n';
+      s += '# =============================================================================\n\n';
+      s += 'data "aws_lb" "' + r + '" {\n  name = "' + p.existingName + '"\n}\n\n';
+      s += 'data "aws_lb_listener" "' + r + '" {\n  load_balancer_arn = data.aws_lb.' + r + '.arn\n  port              = ' + (p.existingPort || 443) + '\n}\n\n';
+      if (tg) {
+        s += 'resource "aws_lb_listener_rule" "' + r + '" {\n  listener_arn = data.aws_lb_listener.' + r + '.arn\n  priority     = ' + (p.rulePriority || 100) + '\n\n';
+        s += '  action {\n    type             = "forward"\n    target_group_arn = ' + tgRef(tg.id) + '\n  }\n\n';
+        if (p.ruleHost) s += '  condition {\n    host_header {\n      values = ["' + p.ruleHost + '"]\n    }\n  }\n\n';
+        if (p.rulePath) s += '  condition {\n    path_pattern {\n      values = ["' + p.rulePath + '"]\n    }\n  }\n\n';
+        s += '  tags = { Name = "' + p.name + '" }\n}\n\n';
+      }
+      if (p.openExistingSg && tg) {
+        const sgIds = new Set();
+        (tg.props.targets || []).map(byId).filter(Boolean).forEach(ins => {
+          const lt = byId(ins.props.launchTemplate);
+          ((lt ? lt.props.securityGroups : ins.props.securityGroups) || []).forEach(id => sgIds.add(id));
+        });
+        Array.from(sgIds).map(byId).filter(Boolean).forEach(sg => {
+          s += '# Let whichever security groups that load balancer already uses reach the\n# instances. The security-group module owns its own rules, so this one is\n# attached from outside by ID.\n';
+          s += 'resource "aws_vpc_security_group_ingress_rule" "' + tfName(sg.props.name) + '_from_' + r + '" {\n';
+          s += '  for_each = toset(data.aws_lb.' + r + '.security_groups)\n\n';
+          s += '  security_group_id            = ' + sgRef(sg.id) + '\n';
+          s += '  referenced_security_group_id = each.value\n';
+          s += '  ip_protocol                  = "tcp"\n  from_port                    = ' + tg.props.port + '\n  to_port                      = ' + tg.props.port + '\n';
+          s += '  description                  = "from ' + p.existingName + '"\n}\n\n';
+        });
+      }
+      s += 'output "' + r + '_dns_name" {\n  description = "Private name of the shared load balancer. Resolvable inside the VPC only."\n  value       = data.aws_lb.' + r + '.dns_name\n}\n\n';
+      return;
+    }
+
+    const subs = (p.subnets || []).map(subnetRef);
+    const certRef = p.listenProtocol !== 'HTTPS' ? null
+      : (p.certMode === 'selfsigned' ? 'aws_acm_certificate.' + r + '.arn' : q(p.certArn || 'REPLACE_ME'));
+    s += '# =============================================================================\n';
+    s += '# ' + p.name + ': a new internal load balancer. Billed hourly whether busy or not.\n';
+    s += '# If the account already has an internal one, reusing it and adding a rule\n';
+    s += '# would cost nothing.\n';
+    s += '# =============================================================================\n\n';
+    const lines = [
+      ['name', q(p.name)],
+      ['internal', 'true', 'private addresses only; never internet-facing'],
+      ['subnet_ids', rlist(subs)],
+      ['security_group_ids', rlist((p.securityGroups || []).map(sgRef))],
+      '',
+      ['default_target_group_arn', tg ? tgRef(tg.id) : 'null']
+    ];
+    if (certRef) lines.push('', ['certificate_arn', certRef, 'supplying this creates the HTTPS listener on 443'],
+      ['ssl_policy', q('ELBSecurityPolicy-TLS13-1-2-2021-06')],
+      ['enable_http_listener', String(!!p.redirect80)],
+      ['redirect_http_to_https', String(!!p.redirect80)],
+      ['http_port', String(p.httpPort || 80)]);
+    else lines.push('', ['enable_http_listener', 'true'], ['http_port', String(p.httpPort || 80)]);
+    lines.push('', ['idle_timeout', String(p.idle || 60)], ['drop_invalid_header_fields', 'true'], ['tags', TAGS]);
+    s += block('alb', mName('alb', a), 'alb', lines);
+    s += 'output "' + r + '_url" {\n  description = "Reachable from inside the VPC, a peered VPC, or over your VPN."\n  value       = module.' + mName('alb', a) + '.url\n}\n\n';
+  });
+
+  /* ---- auto scaling groups ---- */
+  const groups = asgGroups();
+  if (groups.length) {
+    s += '# =============================================================================\n# Auto Scaling Groups\n# -----------------------------------------------------------------------------\n# The instances drawn on the canvas become desired_capacity here. There is no\n# single-instance module, and an ASG is the better shape anyway: it replaces a\n# failed instance on its own, and health_check_type = "ELB" means an instance\n# whose application died is replaced rather than left running and idle.\n# =============================================================================\n\n';
+  }
+  groups.forEach(g => {
+    const p = g.lt.props;
+    s += '# ' + g.members.map(m => m.props.name).join(', ') + '\n';
+    s += block('asg', mName('asg', g.lt), 'asg', [
+      ['name', q(p.name.replace(/-lt$/, '') || p.name)],
+      ['launch_template_id', 'module.' + mName('lt', g.lt) + '.launch_template_id'],
+      ['launch_template_version', 'module.' + mName('lt', g.lt) + '.latest_version', 'pinned, so a script change shows up in the plan'],
+      '',
+      ['subnet_ids', rlist(g.subs.map(subnetRef))],
+      ['target_group_arns', rlist(g.tgs.map(t => tgRef(t.id)))],
+      '',
+      ['min_size', String(p.asgMin === '' || p.asgMin == null ? g.members.length : p.asgMin)],
+      ['max_size', String(p.asgMax === '' || p.asgMax == null ? g.members.length * 2 : p.asgMax)],
+      ['desired_capacity', String(g.members.length), 'one per instance on the canvas'],
+      '',
+      ['health_check_type', q('ELB'), 'replace an instance the load balancer calls unhealthy'],
+      ['health_check_grace_period', String(p.asgGrace || 300), 'time for the startup script to finish'],
+      ['enable_instance_refresh', String(p.asgRefresh !== false), 'roll out template changes with no downtime'],
+      '',
+      ['tags', '{\n    Name      = "' + (p.name.replace(/-lt$/, '') || p.name) + '"\n    ManagedBy = "aws-solution-builder"\n  }']
+    ]);
+  });
+
+  /* ---- instances that are not in an ASG ---- */
+  const loose = ofType('ec2').filter(e => !e.props.launchTemplate);
+  if (loose.length) {
+    s += '# =============================================================================\n# Standalone instances\n# -----------------------------------------------------------------------------\n# These have no launch template, so there is no module to call and they are\n# emitted as plain resources. Giving them a launch template would fold them\n# into an Auto Scaling Group, which is almost always what you want.\n# =============================================================================\n\n';
+    loose.forEach(n => {
+      const p = n.props;
+      s += 'resource "aws_instance" "' + tfName(p.name) + '" {\n';
+      s += '  ami                         = "' + p.ami + '"\n  instance_type               = "' + (p.instanceType || 't3.micro') + '"\n';
+      const sgs = (p.securityGroups || []).map(sgRef);
+      if (sgs.length) s += '  vpc_security_group_ids      = ' + rlist(sgs) + '\n';
+      s += '  subnet_id                   = ' + subnetRef(p.subnet) + '\n';
+      s += '  associate_public_ip_address = false\n\n  tags = { Name = "' + p.name + '" }\n}\n\n';
+    });
+  }
+
+  return s;
+}
+
+/* =========================================================================
+   AWS CLI GENERATOR — the same design, one command at a time.
+   ========================================================================= */
+function genCli() {
+  const vpc0 = ofType('vpc')[0];
+  const region = vpc0 ? vpc0.props.region : 'us-east-1';
+  let s = '#!/usr/bin/env bash\n';
+  s += '# Generated by AWS Solution Builder — private-only profile.\n';
+  s += '#\n';
+  s += '# Private subnets only: no internet gateway, no NAT, no public IP addresses.\n';
+  s += '# Load balancers are internal, or an existing one is reused.\n';
+  s += '# Certificates are self-signed and imported into ACM, which is free.\n';
+  s += '#\n';
+  s += '# Run it top to bottom in one shell so the variables carry over.\n';
+  s += '# Terraform does this bookkeeping for you; this script is here so you can\n';
+  s += '# see exactly which API calls make up the design.\n\n';
+  s += 'set -euo pipefail\nexport AWS_DEFAULT_REGION=' + region + '\n\n';
+
+  ofType('vpc').forEach(n => {
+    const p = n.props, V = SH(p.name);
+    s += '# ===== VPC: ' + p.name + ' =====\n';
+    s += V + '_ID=$(aws ec2 create-vpc --cidr-block ' + p.cidr + ' \\\n';
+    s += '  --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=' + p.name + '}]" \\\n';
+    s += '  --query Vpc.VpcId --output text)\necho "' + p.name + ' = $' + V + '_ID"\n';
+    if (p.dns) s += 'aws ec2 modify-vpc-attribute --vpc-id "$' + V + '_ID" --enable-dns-hostnames\n';
+    s += '\n# No internet gateway is created. This route table has no default route.\n';
+    s += V + '_RT=$(aws ec2 create-route-table --vpc-id "$' + V + '_ID" \\\n';
+    s += '  --tag-specifications "ResourceType=route-table,Tags=[{Key=Name,Value=' + p.name + '-private-rt}]" \\\n';
+    s += '  --query RouteTable.RouteTableId --output text)\n\n';
+    if (p.s3Endpoint) {
+      s += '# Gateway endpoint for S3. Free, and it is what makes dnf work with no internet.\n';
+      s += 'aws ec2 create-vpc-endpoint --vpc-id "$' + V + '_ID" \\\n';
+      s += '  --service-name com.amazonaws.' + p.region + '.s3 \\\n';
+      s += '  --vpc-endpoint-type Gateway --route-table-ids "$' + V + '_RT" >/dev/null\n\n';
+    }
+    if (p.ifaceEndpoints) {
+      const svcs = String(p.ifaceServices || '').split(',').map(x => x.trim()).filter(Boolean);
+      s += '# Interface endpoints. Billed per hour per zone, so only create what you use.\n';
+      s += V + '_VPCE_SG=$(aws ec2 create-security-group --group-name ' + p.name + '-vpce \\\n';
+      s += '  --description "HTTPS from inside the VPC to the interface endpoints" \\\n';
+      s += '  --vpc-id "$' + V + '_ID" --query GroupId --output text)\n';
+      s += 'aws ec2 authorize-security-group-ingress --group-id "$' + V + '_VPCE_SG" \\\n';
+      s += '  --protocol tcp --port 443 --cidr ' + p.cidr + '\n';
+      s += 'for SVC in ' + svcs.join(' ') + '; do\n';
+      s += '  aws ec2 create-vpc-endpoint --vpc-id "$' + V + '_ID" \\\n';
+      s += '    --service-name "com.amazonaws.' + p.region + '.$SVC" \\\n';
+      s += '    --vpc-endpoint-type Interface --private-dns-enabled \\\n';
+      s += '    --security-group-ids "$' + V + '_VPCE_SG" \\\n';
+      s += '    --subnet-ids SUBNET_ID_A SUBNET_ID_B >/dev/null\n';
+      s += 'done\n\n';
+    }
+  });
+
+  ofType('subnet').forEach(n => {
+    const p = n.props, v = byId(p.vpc), V = v ? SH(v.props.name) : 'VPC';
+    s += '# ===== Private subnet: ' + p.name + ' =====\n';
+    s += SH(p.name) + '_ID=$(aws ec2 create-subnet --vpc-id "$' + V + '_ID" --cidr-block ' + p.cidr + ' \\\n';
+    s += '  --availability-zone ' + ((v ? v.props.region : region) + p.az) + ' \\\n';
+    s += '  --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=' + p.name + '},{Key=Tier,Value=' + (p.role || 'application') + '}]" \\\n';
+    s += '  --query Subnet.SubnetId --output text)\n';
+    s += '# No map-public-ip-on-launch, and the private route table means no way out.\n';
+    s += 'aws ec2 associate-route-table --subnet-id "$' + SH(p.name) + '_ID" --route-table-id "$' + V + '_RT" >/dev/null\n\n';
+  });
+
+  ofType('sg').forEach(n => {
+    const p = n.props, v = byId(p.vpc), V = v ? SH(v.props.name) : 'VPC', G = SH(p.name);
+    s += '# ===== Security group: ' + p.name + ' =====\n';
+    s += G + '_SG=$(aws ec2 create-security-group --group-name ' + p.name + ' \\\n';
+    s += '  --description "' + (p.desc || p.name) + '" --vpc-id "$' + V + '_ID" --query GroupId --output text)\n';
+    (p.ingress || '').split('\n').map(x => x.trim()).filter(Boolean).forEach(rule => {
+      const b = rule.split(':'); if (b.length < 3) return;
+      const src = b.slice(2).join(':');
+      const named = ofType('sg').find(g => g.props.name === src);
+      if (named) s += 'aws ec2 authorize-security-group-ingress --group-id "$' + G + '_SG" \\\n  --protocol ' + b[0] + ' --port ' + b[1] + ' --source-group "$' + SH(named.props.name) + '_SG"\n';
+      else s += 'aws ec2 authorize-security-group-ingress --group-id "$' + G + '_SG" \\\n  --protocol ' + b[0] + ' --port ' + b[1] + ' --cidr ' + src + '\n';
+    });
+    s += '\n';
+  });
+
+  const selfSigned = ofType('alb').filter(a => a.props.source === 'create' && a.props.listenProtocol === 'HTTPS' && a.props.certMode === 'selfsigned');
+  if (selfSigned.length) {
+    s += '# ===== Self-signed certificates =====\n';
+    s += '# openssl is free and ACM does not charge to import a certificate.\n';
+    s += '# Clients will warn until you add the certificate to their trust store.\n\n';
+    selfSigned.forEach(a => {
+      const p = a.props, C = SH(p.name), cn = p.certDomain || 'app.internal', days = +p.certDays || 825;
+      s += 'openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days ' + days + ' \\\n';
+      s += '  -keyout /tmp/' + tfName(p.name) + '.key -out /tmp/' + tfName(p.name) + '.crt \\\n';
+      s += '  -subj "/CN=' + cn + '/O=Internal" \\\n';
+      s += '  -addext "subjectAltName=DNS:' + cn + '" \\\n';
+      s += '  -addext "extendedKeyUsage=serverAuth"\n';
+      s += C + '_CERT_ARN=$(aws acm import-certificate \\\n';
+      s += '  --certificate fileb:///tmp/' + tfName(p.name) + '.crt \\\n';
+      s += '  --private-key fileb:///tmp/' + tfName(p.name) + '.key \\\n';
+      s += '  --tags Key=Name,Value=' + p.name + '-selfsigned \\\n';
+      s += '  --query CertificateArn --output text)\necho "certificate = $' + C + '_CERT_ARN"\n\n';
+    });
+  }
+
+  ofType('lt').forEach(n => {
+    const p = n.props, L = SH(p.name);
+    const sgVars = (p.securityGroups || []).map(byId).filter(Boolean).map(g => '\\"$' + SH(g.props.name) + '_SG\\"');
+    s += '# ===== Launch template: ' + p.name + ' =====\n';
+    if (!p.ami) {
+      s += '# No AMI was pinned, so resolve the current Amazon Linux 2023 image the same\n';
+      s += '# way the launch-template module does.\n';
+      s += L + '_AMI=$(aws ssm get-parameter \\\n';
+      s += '  --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-' + (p.arch || 'x86_64') + ' \\\n';
+      s += '  --query Parameter.Value --output text)\n';
+    }
+    if (p.iamMode === 'create') {
+      s += '# The Terraform version builds this profile with the iam-instance-profile\n';
+      s += '# module. By hand it is create-role, attach-role-policy, create-instance-profile.\n';
+      s += '# Assumed to exist here as ' + p.name + '-profile.\n';
+    }
+    s += '# User data has to be base64, so write it to a file first.\n';
+    s += "cat > /tmp/" + tfName(p.name) + ".sh <<'USERDATA'\n" + (p.userData || '#!/bin/bash\n').replace(/\n$/, '') + "\nUSERDATA\n\n";
+    s += 'cat > /tmp/' + tfName(p.name) + '.json <<JSON\n{\n';
+    s += '  "ImageId": "' + (p.ami || '$' + L + '_AMI') + '",\n  "InstanceType": "' + p.instanceType + '",\n';
+    if (sgVars.length) s += '  "SecurityGroupIds": [' + sgVars.join(', ') + '],\n';
+    const prof = p.iamMode === 'create' ? p.name + '-profile' : (p.iamMode === 'existing' ? p.iamProfile : '');
+    if (prof) s += '  "IamInstanceProfile": {"Name": "' + prof + '"},\n';
+    if (p.imdsv2) s += '  "MetadataOptions": {"HttpTokens": "required", "HttpEndpoint": "enabled", "HttpPutResponseHopLimit": ' + (p.imdsHops || 1) + '},\n';
+    s += '  "BlockDeviceMappings": [{"DeviceName": "/dev/xvda", "Ebs": {"VolumeSize": ' + (p.volumeSize || 20) + ', "VolumeType": "gp3", "Encrypted": true}}],\n';
+    s += '  "UserData": "$(base64 -w0 /tmp/' + tfName(p.name) + '.sh)"\n}\nJSON\n\n';
+    s += 'aws ec2 create-launch-template --launch-template-name ' + p.name + ' \\\n';
+    s += '  --launch-template-data file:///tmp/' + tfName(p.name) + '.json >/dev/null\n\n';
+  });
+
+  ofType('tg').forEach(n => {
+    const p = n.props, v = byId(p.vpc), V = v ? SH(v.props.name) : 'VPC', G = SH(p.name);
+    s += '# ===== Target group: ' + p.name + ' =====\n';
+    s += G + '_TG_ARN=$(aws elbv2 create-target-group --name ' + p.name + ' \\\n';
+    s += '  --protocol ' + p.protocol + ' --port ' + p.port + ' --target-type instance \\\n';
+    s += '  --vpc-id "$' + V + '_ID" \\\n';
+    s += '  --health-check-protocol ' + (p.hcProtocol || p.protocol) + ' --health-check-path ' + p.hcPath + ' \\\n';
+    if (p.hcPort) s += '  --health-check-port ' + p.hcPort + ' \\\n';
+    s += '  --matcher HttpCode=' + (p.hcMatcher || '200') + ' \\\n';
+    s += '  --healthy-threshold-count ' + (p.healthy || 2) + ' --unhealthy-threshold-count ' + (p.unhealthy || 3) + ' \\\n';
+    s += '  --query "TargetGroups[0].TargetGroupArn" --output text)\n';
+    s += 'aws elbv2 modify-target-group-attributes --target-group-arn "$' + G + '_TG_ARN" \\\n';
+    s += '  --attributes Key=deregistration_delay.timeout_seconds,Value=' + (p.deregDelay || 30) +
+         (p.stickiness ? ' Key=stickiness.enabled,Value=true Key=stickiness.type,Value=lb_cookie' : '') + ' >/dev/null\n\n';
+  });
+
+  ofType('alb').forEach(n => {
+    const p = n.props, r = SH(p.name), tg = byId(p.targetGroup), G = tg ? SH(tg.props.name) : 'APP';
+    if (p.source === 'existing') {
+      s += '# ===== ' + p.name + ': reuse the existing load balancer "' + p.existingName + '" =====\n';
+      s += '# Look it up rather than create it. Nothing here modifies the load balancer itself.\n';
+      s += r + '_LB_ARN=$(aws elbv2 describe-load-balancers --names ' + p.existingName + ' \\\n';
+      s += '  --query "LoadBalancers[0].LoadBalancerArn" --output text)\n';
+      s += r + '_LISTENER_ARN=$(aws elbv2 describe-listeners --load-balancer-arn "$' + r + '_LB_ARN" \\\n';
+      s += '  --query "Listeners[?Port==\\`' + (p.existingPort || 443) + '\\`].ListenerArn | [0]" --output text)\n\n';
+      s += '# Check the priority is free before using it:\n';
+      s += '# aws elbv2 describe-rules --listener-arn "$' + r + '_LISTENER_ARN" --query "Rules[].Priority"\n';
+      const conds = [];
+      if (p.ruleHost) conds.push('Field=host-header,HostHeaderConfig={Values=[' + p.ruleHost + ']}');
+      if (p.rulePath) conds.push('Field=path-pattern,PathPatternConfig={Values=[' + p.rulePath + ']}');
+      s += 'aws elbv2 create-rule --listener-arn "$' + r + '_LISTENER_ARN" \\\n';
+      s += '  --priority ' + (p.rulePriority || 100) + ' \\\n';
+      s += '  --conditions ' + (conds.join(' ') || 'Field=path-pattern,PathPatternConfig={Values=[/*]}') + ' \\\n';
+      s += '  --actions Type=forward,TargetGroupArn="$' + G + '_TG_ARN" >/dev/null\n\n';
+      if (p.openExistingSg && tg) {
+        const sgIds = new Set();
+        (tg.props.targets || []).map(byId).filter(Boolean).forEach(ins => {
+          const lt = byId(ins.props.launchTemplate);
+          ((lt ? lt.props.securityGroups : ins.props.securityGroups) || []).forEach(id => sgIds.add(id));
+        });
+        s += '# Allow the security groups already on that load balancer to reach the instances.\n';
+        s += 'for LBSG in $(aws elbv2 describe-load-balancers --load-balancer-arns "$' + r + '_LB_ARN" \\\n';
+        s += '  --query "LoadBalancers[0].SecurityGroups" --output text); do\n';
+        Array.from(sgIds).map(byId).filter(Boolean).forEach(sg => {
+          s += '  aws ec2 authorize-security-group-ingress --group-id "$' + SH(sg.props.name) + '_SG" \\\n';
+          s += '    --protocol tcp --port ' + tg.props.port + ' --source-group "$LBSG"\n';
+        });
+        s += 'done\n\n';
+      }
+      s += 'aws elbv2 describe-load-balancers --load-balancer-arns "$' + r + '_LB_ARN" \\\n  --query "LoadBalancers[0].DNSName" --output text\n\n';
+      return;
+    }
+    const subVars = (p.subnets || []).map(byId).filter(Boolean).map(x => '"$' + SH(x.props.name) + '_ID"');
+    const sgVars = (p.securityGroups || []).map(byId).filter(Boolean).map(x => '"$' + SH(x.props.name) + '_SG"');
+    s += '# ===== ' + p.name + ': create a new internal load balancer (billed hourly) =====\n';
+    s += r + '_LB_ARN=$(aws elbv2 create-load-balancer --name ' + p.name + ' --type application \\\n';
+    s += '  --scheme internal \\\n';
+    s += '  --subnets ' + (subVars.join(' ') || 'SUBNET_ID_A SUBNET_ID_B') + ' \\\n';
+    s += '  --security-groups ' + (sgVars.join(' ') || 'SG_ID') + ' \\\n';
+    s += '  --query "LoadBalancers[0].LoadBalancerArn" --output text)\n';
+    s += 'aws elbv2 create-listener --load-balancer-arn "$' + r + '_LB_ARN" \\\n';
+    s += '  --protocol ' + p.listenProtocol + ' --port ' + p.listenPort + ' \\\n';
+    if (p.listenProtocol === 'HTTPS') {
+      const cert = p.certMode === 'selfsigned' ? '"$' + r + '_CERT_ARN"' : (p.certArn || 'REPLACE_ME');
+      s += '  --certificates CertificateArn=' + cert + ' \\\n  --ssl-policy ELBSecurityPolicy-TLS13-1-2-2021-06 \\\n';
+    }
+    s += '  --default-actions Type=forward,TargetGroupArn="$' + G + '_TG_ARN" >/dev/null\n';
+    if (p.redirect80 && p.listenProtocol === 'HTTPS') {
+      s += 'aws elbv2 create-listener --load-balancer-arn "$' + r + '_LB_ARN" --protocol HTTP --port 80 \\\n';
+      s += '  --default-actions \'Type=redirect,RedirectConfig={Protocol=HTTPS,Port=' + p.listenPort + ',StatusCode=HTTP_301}\' >/dev/null\n';
+    }
+    s += '\n';
+  });
+
+  if (ofType('ec2').length) {
+    s += '# ===== Instances =====\n';
+    ofType('ec2').forEach(n => {
+      const p = n.props, lt = byId(p.launchTemplate), sub = byId(p.subnet);
+      s += SH(p.name) + '_ID=$(aws ec2 run-instances \\\n';
+      s += lt ? '  --launch-template LaunchTemplateName=' + lt.props.name + ',Version=\\$Latest \\\n'
+              : '  --image-id ' + (p.ami || 'RESOLVE_AMI') + ' --instance-type ' + (p.instanceType || 't3.micro') + ' \\\n';
+      s += '  --subnet-id "$' + (sub ? SH(sub.props.name) : 'SUBNET') + '_ID" --count 1 \\\n';
+      s += '  --no-associate-public-ip-address \\\n';
+      s += '  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=' + p.name + '}]" \\\n';
+      s += '  --query "Instances[0].InstanceId" --output text)\n';
+    });
+    s += '\n# Register them once they are running:\n';
+    ofType('tg').forEach(t => {
+      const ids = (t.props.targets || []).map(byId).filter(Boolean).map(x => 'Id="$' + SH(x.props.name) + '_ID"');
+      if (!ids.length) return;
+      s += 'aws elbv2 register-targets --target-group-arn "$' + SH(t.props.name) + '_TG_ARN" \\\n  --targets ' + ids.join(' ') + '\n';
+    });
+    s += '\n# Watch them become healthy:\n';
+    ofType('tg').forEach(t => { s += '# aws elbv2 describe-target-health --target-group-arn "$' + SH(t.props.name) + '_TG_ARN"\n'; });
+  }
+  s += '\n# There is no public address anywhere in this design. To reach it, use a VPN,\n';
+  s += '# Direct Connect, VPC peering, or Session Manager port forwarding:\n';
+  s += '#   aws ssm start-session --target i-xxxx \\\n';
+  s += '#     --document-name AWS-StartPortForwardingSessionToRemoteHost \\\n';
+  s += '#     --parameters host="internal-alb-123.elb.amazonaws.com",portNumber=443,localPortNumber=8443\n';
+  return s;
+}
+
+/* ---------- example templates ---------- */
+const UD = {
+  web:
+'#!/bin/bash\n' +
+'set -euxo pipefail\n' +
+'# Amazon Linux repositories live in S3, so this works over the free gateway endpoint\n' +
+'# with no internet access at all.\n' +
+'dnf -y install httpd mod_ssl\n' +
+'\n' +
+'# Self-signed certificate for the leg between the load balancer and this instance.\n' +
+'# The load balancer does not verify it, so a plain self-signed certificate is enough.\n' +
+'HOST=$(hostname -f)\n' +
+'openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 825 \\\n' +
+'  -keyout /etc/pki/tls/private/localhost.key \\\n' +
+'  -out /etc/pki/tls/certs/localhost.crt \\\n' +
+'  -subj "/CN=$HOST/O=Internal" \\\n' +
+'  -addext "subjectAltName=DNS:$HOST"\n' +
+'chmod 600 /etc/pki/tls/private/localhost.key\n' +
+'\n' +
+'echo ok > /var/www/html/health\n' +
+'cat > /var/www/html/index.html <<HTML\n' +
+'<!doctype html><meta charset="utf-8"><title>Internal site</title>\n' +
+'<body style="font-family:sans-serif;padding:3rem">\n' +
+'<h1>It works</h1><p>Served privately by $HOST</p>\n' +
+'</body>\n' +
+'HTML\n' +
+'\n' +
+'systemctl enable --now httpd\n',
+
+  keycloak:
+'#!/bin/bash\n' +
+'set -euxo pipefail\n' +
+'dnf -y install docker\n' +
+'systemctl enable --now docker\n' +
+'\n' +
+'REGION=$(curl -s -H "X-aws-ec2-metadata-token: $(curl -sX PUT http://169.254.169.254/latest/api/token -H \'X-aws-ec2-metadata-token-ttl-seconds: 60\')" \\\n' +
+'  http://169.254.169.254/latest/meta-data/placement/region)\n' +
+'ACCOUNT=$(aws sts get-caller-identity --query Account --output text)\n' +
+'REGISTRY="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"\n' +
+'\n' +
+'# No internet: the Keycloak image must already be mirrored into your own ECR repository.\n' +
+'#   docker pull quay.io/keycloak/keycloak:26.0        (from a machine that has internet)\n' +
+'#   docker tag  quay.io/keycloak/keycloak:26.0 $REGISTRY/keycloak:26.0\n' +
+'#   docker push $REGISTRY/keycloak:26.0\n' +
+'# Reaching ECR privately needs the ecr.api, ecr.dkr and logs interface endpoints.\n' +
+'aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"\n' +
+'\n' +
+'# Self-signed certificate so Keycloak itself speaks HTTPS.\n' +
+'HOST=$(hostname -f)\n' +
+'mkdir -p /etc/keycloak/tls\n' +
+'openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 825 \\\n' +
+'  -keyout /etc/keycloak/tls/tls.key -out /etc/keycloak/tls/tls.crt \\\n' +
+'  -subj "/CN=$HOST/O=Internal" -addext "subjectAltName=DNS:$HOST"\n' +
+'chmod 640 /etc/keycloak/tls/tls.key\n' +
+'\n' +
+'ADMIN_PASS=$(aws secretsmanager get-secret-value --secret-id keycloak/admin \\\n' +
+'  --query SecretString --output text --region "$REGION")\n' +
+'\n' +
+'docker run -d --restart unless-stopped --name keycloak \\\n' +
+'  -p 8443:8443 -p 9000:9000 \\\n' +
+'  -v /etc/keycloak/tls:/opt/keycloak/conf/tls:ro \\\n' +
+'  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \\\n' +
+'  -e KC_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PASS" \\\n' +
+'  -e KC_HTTPS_CERTIFICATE_FILE=/opt/keycloak/conf/tls/tls.crt \\\n' +
+'  -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/keycloak/conf/tls/tls.key \\\n' +
+'  -e KC_HTTPS_PORT=8443 \\\n' +
+'  -e KC_PROXY_HEADERS=xforwarded \\\n' +
+'  -e KC_HOSTNAME=https://login.internal \\\n' +
+'  -e KC_HEALTH_ENABLED=true \\\n' +
+'  -e KC_DB=postgres \\\n' +
+'  -e KC_DB_URL=jdbc:postgresql://REPLACE-DB-HOST:5432/keycloak \\\n' +
+'  -e KC_DB_USERNAME=keycloak \\\n' +
+'  -e KC_DB_PASSWORD=REPLACE_ME \\\n' +
+'  "$REGISTRY/keycloak:26.0" start --optimized\n' +
+'\n' +
+'# Health lives on the management port 9000. Because KC_HTTPS_CERTIFICATE_FILE is\n' +
+'# set, the management interface inherits the same TLS settings, so the target\n' +
+'# group checks https://:9000/health/ready while real traffic goes to 8443.\n',
+
+  nifi:
+'#!/bin/bash\n' +
+'set -euxo pipefail\n' +
+'dnf -y install docker\n' +
+'systemctl enable --now docker\n' +
+'\n' +
+'REGION=$(curl -s -H "X-aws-ec2-metadata-token: $(curl -sX PUT http://169.254.169.254/latest/api/token -H \'X-aws-ec2-metadata-token-ttl-seconds: 60\')" \\\n' +
+'  http://169.254.169.254/latest/meta-data/placement/region)\n' +
+'ACCOUNT=$(aws sts get-caller-identity --query Account --output text)\n' +
+'REGISTRY="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"\n' +
+'\n' +
+'# Mirror apache/nifi into ECR first; there is no route to Docker Hub from here.\n' +
+'aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"\n' +
+'\n' +
+'HOST=$(hostname -f)\n' +
+'mkdir -p /opt/nifi/{conf,content,database,flowfile,provenance,state,tls}\n' +
+'\n' +
+'# NiFi wants a keystore rather than loose PEM files, so build one from the\n' +
+'# self-signed pair. The password is random and kept on the instance only.\n' +
+'KS_PASS=$(openssl rand -base64 24)\n' +
+'openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 825 \\\n' +
+'  -keyout /opt/nifi/tls/tls.key -out /opt/nifi/tls/tls.crt \\\n' +
+'  -subj "/CN=$HOST/O=Internal" -addext "subjectAltName=DNS:$HOST"\n' +
+'openssl pkcs12 -export -in /opt/nifi/tls/tls.crt -inkey /opt/nifi/tls/tls.key \\\n' +
+'  -out /opt/nifi/tls/keystore.p12 -name nifi -password "pass:$KS_PASS"\n' +
+'cp /opt/nifi/tls/keystore.p12 /opt/nifi/tls/truststore.p12\n' +
+'chown -R 1000:1000 /opt/nifi\n' +
+'\n' +
+'docker run -d --restart unless-stopped --name nifi -p 8443:8443 \\\n' +
+'  -e NIFI_WEB_HTTPS_PORT=8443 \\\n' +
+'  -e NIFI_WEB_PROXY_HOST="nifi.internal:443" \\\n' +
+'  -e KEYSTORE_PATH=/opt/nifi/tls/keystore.p12 \\\n' +
+'  -e KEYSTORE_TYPE=PKCS12 \\\n' +
+'  -e KEYSTORE_PASSWORD="$KS_PASS" \\\n' +
+'  -e TRUSTSTORE_PATH=/opt/nifi/tls/truststore.p12 \\\n' +
+'  -e TRUSTSTORE_TYPE=PKCS12 \\\n' +
+'  -e TRUSTSTORE_PASSWORD="$KS_PASS" \\\n' +
+'  -e SINGLE_USER_CREDENTIALS_USERNAME=admin \\\n' +
+'  -e SINGLE_USER_CREDENTIALS_PASSWORD=REPLACE_WITH_12_PLUS_CHARS \\\n' +
+'  -v /opt/nifi/tls:/opt/nifi/tls:ro \\\n' +
+'  -v /opt/nifi/conf:/opt/nifi/nifi-current/conf \\\n' +
+'  -v /opt/nifi/content:/opt/nifi/nifi-current/content_repository \\\n' +
+'  -v /opt/nifi/database:/opt/nifi/nifi-current/database_repository \\\n' +
+'  -v /opt/nifi/flowfile:/opt/nifi/nifi-current/flowfile_repository \\\n' +
+'  -v /opt/nifi/provenance:/opt/nifi/nifi-current/provenance_repository \\\n' +
+'  -v /opt/nifi/state:/opt/nifi/nifi-current/state \\\n' +
+'  "$REGISTRY/nifi:latest"\n' +
+'\n' +
+'# NiFi keeps a session per user, so sticky sessions are on in the target group.\n'
+};
+
+function threeTier(o) {
+  state.nodes = []; state.selected = null;
+  const vpc = addNode('vpc', 40, 40, {name:o.prefix + '-vpc', cidr:'10.0.0.0/16', region:'us-east-1', dns:true,
+    s3Endpoint:true, ifaceEndpoints:!!o.iface, ifaceServices:o.ifaceServices || 'ssm,ssmmessages,ec2messages'});
+  const s1 = addNode('subnet', 40, 170, {name:o.prefix + '-private-a', vpc:vpc.id, cidr:'10.0.1.0/24', az:'a', role:'application'});
+  const s2 = addNode('subnet', 40, 280, {name:o.prefix + '-private-b', vpc:vpc.id, cidr:'10.0.2.0/24', az:'b', role:'application'});
+  const appSg = addNode('sg', 300, 170, {name:o.prefix + '-app-sg', vpc:vpc.id, desc:'App tier, reachable from the load balancer only',
+    ingress:o.sgRules, egressAll:true});
+  const tg = addNode('tg', 560, 170, {name:o.prefix + '-tg', vpc:vpc.id, port:o.port, protocol:'HTTPS',
+    hcPath:o.health, hcProtocol:o.hcProtocol || 'HTTPS', hcPort:o.hcPort || '', hcMatcher:o.matcher || '200',
+    stickiness:!!o.sticky, deregDelay:30});
+  const lt = addNode('lt', 300, 300, {name:o.prefix + '-lt', ami:'', arch:o.arch || 'x86_64', instanceType:o.size,
+    securityGroups:[appSg.id], subnet:s1.id, volumeSize:o.disk || 20, imdsv2:true, imdsHops:o.hops || 1,
+    iamMode:'create', iamPolicies:o.policies || 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
+    asgMin:o.min || 2, asgMax:o.max || 4, asgGrace:o.grace || 300, asgRefresh:true, userData:o.userData});
+  const e1 = addNode('ec2', 820, 100, {name:o.prefix + '-1', launchTemplate:lt.id, subnet:s1.id});
+  const e2 = addNode('ec2', 820, 230, {name:o.prefix + '-2', launchTemplate:lt.id, subnet:s2.id});
+  tg.props.targets = [e1.id, e2.id];
+
+  const albProps = Object.assign({name:o.prefix + '-alb', targetGroup:tg.id}, o.alb);
+  if (albProps.source === 'create') {
+    const lbSg = addNode('sg', 300, 40, {name:o.prefix + '-alb-sg', vpc:vpc.id, desc:'Internal entry point',
+      ingress:'tcp:443:10.0.0.0/16', egressAll:true});
+    albProps.subnets = [s1.id, s2.id];
+    albProps.securityGroups = [lbSg.id];
+    albProps.httpPort = 80;
+    appSg.props.ingress = 'tcp:' + o.port + ':' + o.prefix + '-alb-sg' + (o.extraRules ? '\n' + o.extraRules : '');
+  }
+  addNode('alb', 560, 40, albProps);
+  state.title = o.title;
+  renderAll(); fit();
+  toast('Loaded: ' + o.title);
+}
+
+const TEMPLATES = {
+  website: {
+    title: 'Internal site on a shared load balancer',
+    blurb: 'Two Graviton Apache servers in private subnets, each with its own self-signed certificate, hanging off a listener rule on a load balancer that already exists. Generated as vpc, security-group, target-group, launch-template and asg module calls. Nothing new is billed by the hour except the instances.',
+    run: () => threeTier({prefix:'web', port:443, health:'/health', size:'t4g.small', arch:'arm64', disk:10,
+      min:2, max:4, sgRules:'tcp:443:10.0.0.0/16', userData:UD.web,
+      alb:{source:'existing', existingName:'shared-internal-alb', existingPort:443, ruleHost:'web.internal', rulePath:'/*', rulePriority:100, openExistingSg:true},
+      title:'Internal site on a shared load balancer'})
+  },
+  keycloak: {
+    title: 'Keycloak, private, own load balancer',
+    blurb: 'Keycloak over HTTPS on 8443 with a self-signed certificate on the instance and another generated for a new internal load balancer built by the alb module. Health is checked on the management port 9000. The image has to be mirrored into ECR first, so the ECR and logs interface endpoints are on and the module reports what they cost.',
+    run: () => threeTier({prefix:'keycloak', port:8443, health:'/health/ready', hcProtocol:'HTTPS', hcPort:'9000',
+      size:'t3.medium', arch:'x86_64', disk:20, sticky:true, iface:true, hops:2, min:2, max:6, grace:420,
+      policies:'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore,\narn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly,\narn:aws:iam::aws:policy/SecretsManagerReadWrite',
+      ifaceServices:'ssm,ssmmessages,ec2messages,ecr.api,ecr.dkr,logs,secretsmanager',
+      sgRules:'tcp:8443:10.0.0.0/16', extraRules:'tcp:9000:keycloak-alb-sg', userData:UD.keycloak,
+      alb:{source:'create', listenPort:443, listenProtocol:'HTTPS', certMode:'selfsigned', certDomain:'login.internal', certDays:825, redirect80:true, idle:60},
+      title:'Keycloak, private, own load balancer'})
+  },
+  nifi: {
+    title: 'Apache NiFi on a shared load balancer',
+    blurb: 'NiFi over HTTPS on 8443 with a PKCS12 keystore built from a self-signed pair, sticky sessions on, and a rule added to an existing internal load balancer. Instances become one Auto Scaling Group, so the target group needs no attachments.',
+    run: () => threeTier({prefix:'nifi', port:8443, health:'/nifi', matcher:'200,302', size:'t3.large', arch:'x86_64', disk:60,
+      sticky:true, iface:true, hops:2, min:2, max:4, grace:600,
+      policies:'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore,\narn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly',
+      ifaceServices:'ssm,ssmmessages,ec2messages,ecr.api,ecr.dkr,logs',
+      sgRules:'tcp:8443:10.0.0.0/16', userData:UD.nifi,
+      alb:{source:'existing', existingName:'shared-internal-alb', existingPort:443, ruleHost:'nifi.internal', rulePath:'/*', rulePriority:200, openExistingSg:true},
+      title:'Apache NiFi on a shared load balancer'})
+  }
+};
+
+/* ---------- modals ---------- */
+const GUIDE = [
+  ['What "private only" changes',
+   'Everything this builder generates lives in private subnets. There is no internet gateway and no NAT gateway, so no machine has a public address, nothing on the internet can reach in, and nothing inside can casually dial out. That is more secure and it is also cheaper, because a NAT gateway costs about thirty dollars a month before you send a single byte through it. The trade is that your startup scripts cannot download from the internet, and you need a VPN, Direct Connect, or Session Manager to reach anything.'],
+  ['Build the network',
+   'Place a VPC with 10.0.0.0/16, then two private subnets, 10.0.1.0/24 in zone a and 10.0.2.0/24 in zone b. Two zones, because a load balancer refuses to start in one. Leave the S3 gateway endpoint on: it is free, and it is the reason dnf still works with no internet, since the Amazon Linux repositories are served out of S3. Turn interface endpoints on only if you need them. Each one is billed by the hour in each zone, so three endpoints across two zones is a real monthly bill.'],
+  ['Decide who can talk',
+   'Write inbound rules as protocol:port:source, one per line. The source should be the name of another security group on the canvas, which becomes a proper group-to-group rule, or an internal range like 10.0.0.0/16. The generator rejects 0.0.0.0/0 outright, because in a private design there is nothing on the internet that should ever be a source.'],
+  ['Reuse a load balancer instead of buying another',
+   'A load balancer is billed by the hour whether it is carrying traffic or not, so the cheapest correct answer is usually one shared internal load balancer with a rule per application. Set the load balancer to "Reuse an existing load balancer", type its name, and give the rule a host header like app.internal and a priority no other rule is using. Terraform then looks the load balancer up with a data source, so it can never change or destroy it, and creates only a listener rule, which is free. It also generates a rule opening your app port to whichever security groups that load balancer already uses, which is the step people forget.'],
+  ['Or create one, knowing what it costs',
+   'If you do need your own, switch to "Create a new internal load balancer" and pick two private subnets in different zones plus a security group. It will always be internal, never internet-facing. The checks panel will remind you that this adds an hourly charge, which is not an error, just a fact worth seeing before you apply.'],
+  ['Certificates that cost nothing',
+   'A public ACM certificate is free but has to be validated against a public DNS name, which a private internal name does not have. A private CA in ACM does the job properly but costs about four hundred dollars a month. So the default here is a self-signed certificate: Terraform generates the key and the certificate with the tls provider and imports them into ACM, and importing is free. Browsers will warn until you add the certificate to your trust store, which is the honest cost of this approach. When you reuse an existing listener, no certificate is generated at all, because that listener already has one.'],
+  ['TLS all the way to the instance',
+   'The target group defaults to HTTPS, so the leg between the load balancer and the instance is encrypted too. The instance uses its own self-signed certificate, created in the startup script with openssl. The load balancer does not verify the certificate on the back end, so self-signed is genuinely sufficient there. Health checks can run on a different protocol and port from the traffic, which is how the Keycloak example checks HTTP on the management port 9000 while real traffic goes to 8443.'],
+  ['Startup scripts with no internet',
+   'This is the part that surprises people. dnf and yum work through the S3 gateway endpoint. Anything else does not. Container images must be mirrored into your own ECR repository, which needs the ecr.api, ecr.dkr and logs interface endpoints. Files can come from an S3 bucket over the free gateway endpoint. Anything that reaches for Docker Hub, GitHub, or a vendor download URL will simply hang, and the checks panel flags it as an error rather than letting you find out at boot time.'],
+  ['Getting in',
+   'With no public address there is no SSH from your laptop, and no bastion in a public subnet either. Give the launch template an instance profile with AmazonSSMManagedInstanceCore and turn on the ssm, ssmmessages and ec2messages endpoints, and Session Manager gives you a shell through the AWS API. The same tool will port-forward the internal load balancer to your machine, so you can open the site in a browser. The generated CLI script ends with that exact command.'],
+  ['What the generated Terraform actually contains',
+   'The Terraform tab does not write raw resources. It writes calls to the shared module library, one module per box on the canvas: vpc, security-group, target-group, alb, launch-template, asg, vpc-endpoints and iam-instance-profile. Save the file as main.tf and put the modules folder beside it, or swap every source line for a Git reference like git::https://github.com/your-org/tf-modules.git//vpc?ref=v1.2.0. Three places the module library changes the shape of the output, and it is worth knowing why. First, the vpc module builds its own subnets from a list of CIDRs, one per Availability Zone, so a subnet you draw is not its own resource: it becomes an entry in private_subnet_cidrs, and everything else refers to it as private_subnet_ids[0] or [1]. The generated file prints that index table in a comment so you can follow it. That is also why two subnets in the same zone is a blocking error. Second, there is an asg module but no single-instance module, so instances sharing a launch template are emitted as one Auto Scaling Group with your instance count as the desired capacity. The group registers and deregisters targets itself, which is why no target group attachments appear anywhere. Third, the alb module always creates a load balancer, so it is deliberately not used on the reuse path; that stays as read-only data sources plus a listener rule. The same goes for the acm-certificate module, which validates through a public Route 53 zone that an internal name does not have, so self-signed certificates stay as raw tls resources.'],
+  ['Read the checks, then generate',
+   'Every box wears a badge and the panel underneath explains each one in plain words. Red means it will not work. Amber is worth reading, and includes the cost warnings. Then open Generate code: Terraform is the one to use, because it remembers what it built. Save it as main.tf, run terraform init and terraform plan, read the plan, and only then apply. terraform destroy takes it all away again when you are done.']
+];
+
+const modalRoot = $('#modalRoot');
+function openModal(kind, arg) {
+  let title = '', body = '';
+  if (kind === 'guide') {
+    title = 'Step by step, private subnets only';
+    body = '<p class="mb-4 text-gray60 dark:text-gray30">Read it straight through the first time. About ten minutes.</p><ol class="space-y-4">' +
+      GUIDE.map((g, i) => '<li><p class="font-semibold text-blue70 dark:text-blue20">' + (i + 1) + '. ' + esc(g[0]) + '</p><p class="mt-1 max-w-[68ch]">' + esc(g[1]) + '</p></li>').join('') + '</ol>' +
+      '<div class="mt-6 pt-4 border-t border-gray20 dark:border-gray80"><p class="font-semibold mb-2">Where to read more</p><ul class="space-y-1">' +
+      [['Private subnets and routing','https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html'],
+       ['VPC endpoints and PrivateLink','https://docs.aws.amazon.com/vpc/latest/privatelink/concepts.html'],
+       ['Importing a certificate into ACM','https://docs.aws.amazon.com/acm/latest/userguide/import-certificate.html'],
+       ['Terraform tls_self_signed_cert','https://registry.terraform.io/providers/hashicorp/tls/latest/docs/resources/self_signed_cert'],
+       ['Calling a Terraform module','https://developer.hashicorp.com/terraform/language/modules/syntax'],
+       ['Module sources, including Git','https://developer.hashicorp.com/terraform/language/modules/sources'],
+       ['Session Manager port forwarding','https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html'],
+       ['Elastic Load Balancing pricing','https://aws.amazon.com/elasticloadbalancing/pricing/'],
+       ['AWS pricing calculator','https://calculator.aws/']].map(d => '<li><a class="text-blue70 dark:text-blue20 underline" target="_blank" rel="noopener" href="' + d[1] + '">' + d[0] + '</a></li>').join('') + '</ul></div>';
+  } else if (kind === 'service') {
+    const T = TYPES[arg];
+    title = T.name;
+    body = '<div class="flex items-start gap-3 mb-4"><svg viewBox="0 0 24 24" width="40" height="40" style="color:' + T.color + '">' + ICONS[arg] + '</svg><p class="text-lg font-semibold">' + esc(T.plain) + '</p></div>' +
+      '<p class="max-w-[68ch] mb-4">' + esc(T.what) + '</p><p class="font-semibold mb-1">What you have to configure</p>' +
+      '<ul class="list-disc ml-5 space-y-1 max-w-[68ch] mb-4">' + T.needs.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' +
+      '<p class="font-semibold mb-1">Official documentation</p><ul class="space-y-1">' +
+      T.docs.map(d => '<li><a class="text-blue70 dark:text-blue20 underline" target="_blank" rel="noopener" href="' + d[1] + '">' + esc(d[0]) + '</a></li>').join('') + '</ul>' +
+      '<div class="mt-5"><button class="px-3 py-2 bg-blue60 text-white" data-add="' + arg + '">Add a ' + esc(T.name.toLowerCase()) + ' to the canvas</button></div>';
+  } else if (kind === 'templates') {
+    title = 'Examples you can load and change';
+    body = '<p class="mb-4 max-w-[68ch] text-gray60 dark:text-gray30">Each one replaces the canvas with a complete private design. Two of them hang a rule off a load balancer that already exists, which is the cheapest arrangement. You will still need a real AMI ID for your region, and images mirrored into your own ECR.</p><div class="space-y-3">' +
+      Object.keys(TEMPLATES).map(k => '<div class="border border-gray20 dark:border-gray80 p-3"><p class="font-semibold">' + esc(TEMPLATES[k].title) + '</p>' +
+        '<p class="text-sm mt-1 mb-2 max-w-[68ch]">' + esc(TEMPLATES[k].blurb) + '</p>' +
+        '<button class="px-3 py-1 bg-blue60 text-white text-sm" data-tpl="' + k + '">Load this example</button></div>').join('') + '</div>';
+  } else if (kind === 'code') {
+    const problems = validate().filter(p => p.level === 'error');
+    title = 'Generated code';
+    body = (problems.length ? '<div class="border-l-4 border-red60 bg-red60/10 p-3 mb-4"><p class="font-semibold text-red60">' + problems.length + ' blocking problem(s) still open</p><p class="text-sm">The code below is generated anyway so you can see the shape, but it will not apply cleanly until the checks panel is clear.</p></div>' : '') +
+      '<div class="flex gap-1 mb-3" id="codeTabs">' +
+      '<button class="px-3 py-1 border border-gray30 dark:border-gray80" data-tab="tf">Terraform</button>' +
+      '<button class="px-3 py-1 border border-gray30 dark:border-gray80" data-tab="cli">AWS CLI</button>' +
+      '<button class="px-3 py-1 border border-gray30 dark:border-gray80 ml-auto" data-copy="1">Copy</button>' +
+      '<button class="px-3 py-1 border border-gray30 dark:border-gray80" data-dl="1">Download</button></div>' +
+      '<pre id="codeOut" class="font-mono text-sm bg-gray10 dark:bg-gray90 p-3 overflow-auto scroll max-h-[52vh] whitespace-pre"></pre>' +
+      '<p class="text-sm text-gray60 dark:text-gray30 mt-3 max-w-[68ch]">Save the Terraform as <span class="font-mono">main.tf</span> with the <span class="font-mono">modules/</span> folder beside it, then <span class="font-mono">terraform init</span>, <span class="font-mono">terraform fmt</span>, <span class="font-mono">terraform plan</span>, read the plan, and only then <span class="font-mono">terraform apply</span>. Data sources for an existing load balancer are read only, so the plan will never show it being changed or destroyed.</p>';
+  } else if (kind === 'io') {
+    title = 'Export and import';
+    body = '<p class="mb-3 max-w-[68ch]">Designs are saved as JSON. Version 1 files from the earlier public-network edition still load; their public subnets, internet gateways and public IP settings are dropped on import, and load balancers come in set to create a new internal one.</p>' +
+      '<div class="flex flex-wrap gap-2 mb-4">' +
+      '<button class="px-3 py-2 bg-blue60 text-white" data-io="export">Download design as JSON</button>' +
+      '<button class="px-3 py-2 border border-gray30 dark:border-gray80" data-io="copy">Copy JSON</button>' +
+      '<label class="px-3 py-2 border border-gray30 dark:border-gray80 cursor-pointer">Import a file<input type="file" accept="application/json,.json" class="hidden" id="fileIn"></label></div>' +
+      '<p class="font-semibold mb-1">Or paste JSON here</p>' +
+      '<textarea id="pasteIn" rows="8" class="field font-mono text-sm" placeholder="Paste an exported design and press Load"></textarea>' +
+      '<button class="mt-2 px-3 py-2 border border-gray30 dark:border-gray80" data-io="paste">Load pasted design</button>' +
+      '<div class="mt-5 pt-4 border-t border-gray20 dark:border-gray80"><p class="font-semibold mb-2">The schema</p><pre class="font-mono text-sm bg-gray10 dark:bg-gray90 p-3 overflow-auto scroll">' + esc(
+'{\n  "schema": "aws-solution-builder",   // must match exactly\n  "version": 3,\n  "title":  "My design",\n  "savedAt": "ISO timestamp",\n  "view":   { "x": 40, "y": 40, "k": 1 },\n  "nodes": [\n    {\n      "id":   "n4k2af",\n      "type": "alb",                   // vpc|subnet|sg|tg|alb|lt|ec2\n      "x": 560, "y": 40,\n      "props": {\n        "name":         "web-alb",\n        "source":       "existing",    // or "create"\n        "existingName": "shared-internal-alb",\n        "existingPort": 443,\n        "ruleHost":     "web.internal",\n        "rulePath":     "/*",\n        "rulePriority": 100,\n        "targetGroup":  "n8b1cc"       // a link: another node id\n      }\n    }\n  ]\n}') + '</pre>' +
+      '<p class="text-sm text-gray60 dark:text-gray30 mt-2 max-w-[68ch]">Links are node ids stored in props. A single link is a string; a multi-link is an array. On import, ids pointing at nodes not in the file are dropped.</p></div>';
+  }
+  $('#modalTitle').textContent = title;
+  $('#modalBody').innerHTML = body;
+  modalRoot.classList.remove('hidden');
+  if (kind === 'code') showCode('tf');
+  $('#modalBody').scrollTop = 0;
+}
+function closeModal() { modalRoot.classList.add('hidden'); }
+let codeKind = 'tf';
+function showCode(k) {
+  codeKind = k;
+  const out = $('#codeOut'); if (!out) return;
+  out.textContent = k === 'tf' ? genTerraform() : genCli();
+  $$('#codeTabs [data-tab]').forEach(b => {
+    b.className = 'px-3 py-1 border ' + (b.dataset.tab === k ? 'bg-blue60 text-white border-blue60' : 'border-gray30 dark:border-gray80');
+  });
+}
+$('#modalBody').addEventListener('click', e => {
+  const t = e.target.closest('button, label'); if (!t) return;
+  if (t.dataset.tab) showCode(t.dataset.tab);
+  if (t.dataset.copy) copyText($('#codeOut').textContent);
+  if (t.dataset.dl) download(codeKind === 'tf' ? 'main.tf' : 'deploy.sh', $('#codeOut').textContent);
+  if (t.dataset.tpl) { TEMPLATES[t.dataset.tpl].run(); closeModal(); }
+  if (t.dataset.add) { const n = addNode(t.dataset.add, 280 - state.view.x / state.view.k, 180 - state.view.y / state.view.k); select(n.id); renderAll(); closeModal(); }
+  if (t.dataset.io === 'export') download((tfName(state.title) || 'design') + '.json', JSON.stringify(doc(), null, 2));
+  if (t.dataset.io === 'copy') copyText(JSON.stringify(doc(), null, 2));
+  if (t.dataset.io === 'paste') { try { loadDoc(JSON.parse($('#pasteIn').value)); closeModal(); } catch (err) { toast('Could not read that JSON: ' + err.message, true); } }
+});
+document.addEventListener('change', e => {
+  if (e.target.id !== 'fileIn') return;
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { try { loadDoc(JSON.parse(r.result)); closeModal(); } catch (err) { toast('Could not read that file: ' + err.message, true); } };
+  r.readAsText(f);
+});
+function copyText(t) { navigator.clipboard.writeText(t).then(() => toast('Copied to clipboard'), () => toast('Copy failed — select the text and copy manually', true)); }
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'text/plain'}));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast('Downloaded ' + name);
+}
+
+/* ---------- palette ---------- */
+function renderPalette() {
+  $('#paletteList').innerHTML = TYPE_KEYS.map(k => {
+    const T = TYPES[k];
+    return '<div class="border border-gray20 dark:border-gray80 p-2 flex items-start gap-2" draggable="true" data-type="' + k + '">' +
+      '<svg viewBox="0 0 24 24" width="26" height="26" class="shrink-0 mt-0.5" style="color:' + T.color + '">' + ICONS[k] + '</svg>' +
+      '<div class="min-w-0 flex-1"><button class="font-medium text-left w-full" data-add="' + k + '">' + esc(T.name) + '</button>' +
+      '<p class="text-sm text-gray60 dark:text-gray30">' + esc(T.plain) + '</p>' +
+      '<button class="text-sm underline text-blue70 dark:text-blue20 mt-1" data-info="' + k + '">What is this?</button></div></div>';
+  }).join('');
+}
+$('#paletteList').addEventListener('click', e => {
+  const info = e.target.closest('[data-info]');
+  if (info) { openModal('service', info.dataset.info); return; }
+  const add = e.target.closest('[data-add]');
+  if (!add) return;
+  const r = svg.getBoundingClientRect();
+  const cx = (r.width / 2 - state.view.x) / state.view.k - NW / 2 + (Math.random() * 60 - 30);
+  const cy = (r.height / 2 - state.view.y) / state.view.k - NH / 2 + (Math.random() * 60 - 30);
+  const n = addNode(add.dataset.add, cx, cy);
+  select(n.id); renderAll(); closeDrawers();
+  if (window.innerWidth < 1024) openDrawer('props');
+  toast('Added ' + TYPES[n.type].name + '. Fill in its properties.');
+});
+$('#paletteList').addEventListener('dragstart', e => {
+  const card = e.target.closest('[data-type]');
+  if (card) e.dataTransfer.setData('text/plain', card.dataset.type);
+});
+$('#canvasWrap').addEventListener('dragover', e => e.preventDefault());
+$('#canvasWrap').addEventListener('drop', e => {
+  e.preventDefault();
+  const type = e.dataTransfer.getData('text/plain');
+  if (!TYPES[type]) return;
+  const p = svgPoint(e);
+  const n = addNode(type, p.x - NW / 2, p.y - NH / 2);
+  select(n.id); renderAll();
+});
+
+/* ---------- drawers, theme, font ---------- */
+function openDrawer(which) { const el = which === 'props' ? $('#propsPane') : $('#palette'); el.classList.remove('hidden'); el.classList.add('flex'); }
+function closeDrawers() { if (window.innerWidth >= 1024) return; [$('#palette'), $('#propsPane')].forEach(el => { el.classList.add('hidden'); el.classList.remove('flex'); }); }
+$('#btnPalette').onclick = () => openDrawer('palette');
+$('#btnProps').onclick = () => openDrawer('props');
+$('#closePalette').onclick = closeDrawers;
+$('#closeProps').onclick = closeDrawers;
+function setTheme(dark) {
+  document.documentElement.classList.toggle('dark', dark);
+  $('#btnTheme').textContent = dark ? 'Light mode' : 'Dark mode';
+  const set = (k, v) => document.documentElement.style.setProperty(k, v);
+  set('--nodebg', dark ? '#161616' : '#ffffff');
+  set('--nodefg', dark ? '#f4f4f4' : '#161616');
+  set('--nodemuted', dark ? '#a8a8a8' : '#6f6f6f');
+  set('--nodeline', dark ? '#525252' : '#c6c6c6');
+  savePrefs();
+}
+function setFont(px) {
+  px = clamp(+px, 14, 36);
+  document.documentElement.style.setProperty('--fs', px + 'px');
+  $('#fsRange').value = px; $('#fsOut').value = px; svg.style.fontSize = px + 'px';
+  savePrefs();
+}
+function savePrefs() { try { localStorage.setItem(LS_PREF, JSON.stringify({dark: document.documentElement.classList.contains('dark'), fs: parseInt($('#fsRange').value, 10)})); } catch (e) {} }
+$('#btnTheme').onclick = () => setTheme(!document.documentElement.classList.contains('dark'));
+$('#fsRange').oninput = e => setFont(e.target.value);
+$('#fsUp').onclick = () => setFont(+$('#fsRange').value + 2);
+$('#fsDown').onclick = () => setFont(+$('#fsRange').value - 2);
+
+/* ---------- toolbar ---------- */
+$$('[data-modal]').forEach(b => b.onclick = () => openModal(b.dataset.modal));
+$('#modalClose').onclick = closeModal;
+$('#modalScrim').onclick = closeModal;
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); if (linkFrom) { linkFrom = null; setHint(''); } }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.selected && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); deleteNode(state.selected); }
+  if (e.key === 's' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+});
+$('#btnSave').onclick = save;
+$('#btnZoomIn').onclick = () => zoom(1.2);
+$('#btnZoomOut').onclick = () => zoom(1/1.2);
+$('#btnZoomFit').onclick = fit;
+$('#btnFlow').onclick = () => {
+  flowMode = !flowMode;
+  $('#btnFlow').textContent = flowMode ? 'Show everything' : 'Show flow';
+  $('#btnFlow').className = 'px-2 py-1 text-sm border ' + (flowMode ? 'bg-blue60 text-white border-blue60' : 'border-gray30 dark:border-gray80');
+  renderAll();
+  if (flowMode) toast('Showing only the path a request takes: load balancer → target group → instances');
+};
+$('#btnClear').onclick = () => {
+  if (!state.nodes.length) return;
+  if (confirm('Remove everything from the canvas? Export first if you want to keep it.')) { state.nodes = []; state.selected = null; state.title = 'Untitled design'; renderAll(); }
+};
+$('#btnPrint').onclick = () => {
+  const problems = validate();
+  $('#printOnly').innerHTML =
+    '<h1 style="font-size:20px;font-weight:700;margin-bottom:2px">' + esc(state.title) + '</h1>' +
+    '<p style="margin-bottom:12px">Printed ' + new Date().toLocaleString() + ' · ' + state.nodes.length + ' resources · private subnets only</p>' +
+    state.nodes.slice().sort((a,b) => TYPES[a.type].order - TYPES[b.type].order).map(n => {
+      const T = TYPES[n.type];
+      return '<div style="border-top:1px solid #ccc;padding:6px 0"><b>' + esc(T.name) + ': ' + esc(n.props.name) + '</b><br>' +
+        T.fields.filter(f => f.k !== 'name' && shown(n, f)).map(f => {
+          let v = n.props[f.k];
+          if (f.t === 'ref') { const r = byId(v); v = r ? r.props.name : '—'; }
+          if (f.t === 'refs') v = (v || []).map(id => { const r = byId(id); return r ? r.props.name : '?'; }).join(', ') || '—';
+          if (f.t === 'bool') v = v ? 'yes' : 'no';
+          if (f.t === 'area') v = String(v || '').split('\n').length + ' line(s)';
+          return '<span style="display:inline-block;min-width:220px">' + esc(f.l) + ': ' + esc(v === '' ? '—' : v) + '</span>';
+        }).join(' ') + '</div>';
+    }).join('') +
+    (problems.length ? '<h2 style="margin-top:14px;font-weight:700">Open items</h2><ul style="margin-left:18px">' +
+      problems.map(p => '<li>' + (p.level === 'error' ? '[fix] ' : '[check] ') + esc(p.msg) + '</li>').join('') + '</ul>' : '');
+  $('#printOnly').style.display = 'block';
+  fit();
+  setTimeout(() => { window.print(); $('#printOnly').style.display = 'none'; }, 120);
+};
+
+/* ---------- boot ---------- */
+renderPalette();
+try { const pref = JSON.parse(localStorage.getItem(LS_PREF) || '{}'); setTheme(!!pref.dark); setFont(pref.fs || 16); }
+catch (e) { setTheme(false); setFont(16); }
+try { const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); if (saved) loadDoc(saved, true); else renderAll(); }
+catch (e) { renderAll(); }
+if (!state.nodes.length) setHint('Tap a service in the palette, or load an example to see a finished private design.');
+window.addEventListener('resize', () => { if (window.innerWidth >= 1024) { $('#palette').classList.remove('hidden'); $('#propsPane').classList.remove('hidden'); } });
+</script>
+</body>
+</html>
