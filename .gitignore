@@ -8,3 +8,10 @@ rds/terraform.tfstate.backup
 rds/terraform.tfstate.backup
 rds/terraform.tfstate.backup
 rds/terraform.tfstate.backup
+rds2/main.tf
+.gitignore
+rds2/.terraform.lock.hcl
+rds2/terraform.tfstate
+.gitignore
+rds2/.terraform/providers/registry.terraform.io/hashicorp/aws/6.62.0/darwin_arm64/terraform-provider-aws_v6.62.0_x5
+rds2/.terraform.tfstate.lock.info

@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>AWS Solution Builder — draw it, check it, generate Terraform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+        serif: ['"IBM Plex Serif"', 'Georgia', 'serif']
+      },
+      colors: {
+        blue60:'#0f62fe', blue70:'#0043ce', blue80:'#002d9c', blue20:'#d0e2ff', blue10:'#edf5ff',
+        gray10:'#f4f4f4', gray20:'#e0e0e0', gray30:'#c6c6c6', gray60:'#6f6f6f',
+        gray80:'#393939', gray90:'#262626', gray100:'#161616',
+        red60:'#da1e28', yellow30:'#f1c21b', green50:'#24a148', purple60:'#8a3ffc', teal60:'#009d9a'
+      }
+    }
+  }
+}
+</script>
+<style>
+  :root { --fs: 16px; }
+  html { font-size: var(--fs); }
+  body { font-family:'IBM Plex Sans', system-ui, sans-serif; }
+  /* Carbon-ish: square corners, hairline rules, focus rings you can actually see */
+  input, select, textarea, button { border-radius: 0; }
+  :focus-visible { outline: 2px solid #0f62fe; outline-offset: 1px; }
+  .dark :focus-visible { outline-color:#78a9ff; }
+  .field { width:100%; background:#f4f4f4; border:0; border-bottom:1px solid #8d8d8d; padding:.5em .6em; color:#161616; }
+  .dark .field { background:#262626; border-bottom-color:#6f6f6f; color:#f4f4f4; }
+  .field:disabled { opacity:.5; }
+  .chip { font-size:.72em; padding:.15em .45em; border:1px solid currentColor; }
+  .sheet { max-height: 88vh; }
+  svg text { user-select:none; }
+  .node { cursor:grab; }
+  .node.dragging { cursor:grabbing; }
+  .flowline { stroke-dasharray: 6 6; animation: march 1s linear infinite; }
+  @keyframes march { to { stroke-dashoffset: -12; } }
+  @media (prefers-reduced-motion: reduce) { .flowline { animation:none; } }
+  .scroll { scrollbar-width: thin; }
+  .scroll::-webkit-scrollbar { width:10px; height:10px; }
+  .scroll::-webkit-scrollbar-thumb { background:#c6c6c6; }
+  .dark .scroll::-webkit-scrollbar-thumb { background:#525252; }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  @media print {
+    .noprint { display:none !important; }
+    #canvasWrap { position:static !important; height:auto !important; border:0 !important; }
+    #printOnly { display:block !important; }
+    html, body { background:#fff !important; color:#000 !important; font-size:12px; }
+    svg { max-height:none !important; }
+  }
+</style>
+</head>
+<body class="bg-white text-gray100 dark:bg-gray100 dark:text-gray10 antialiased">
+
+<!-- ============================ HEADER / TOOLBAR ============================ -->
+<header class="noprint sticky top-0 z-30 bg-white dark:bg-gray100 border-b border-gray20 dark:border-gray80">
+  <div class="flex items-center gap-2 px-3 h-[52px]">
+    <button id="btnPalette" class="lg:hidden px-2 py-1 border border-gray30 dark:border-gray80 text-sm" aria-label="Open service palette">Services</button>
+    <div class="flex items-baseline gap-2 min-w-0">
+      <span class="font-semibold tracking-tight text-blue70 dark:text-blue20 truncate">AWS Solution Builder</span>
+      <span class="hidden md:inline text-gray60 text-sm truncate">draw it, check it, generate the code</span>
+    </div>
+    <div class="ml-auto flex items-center gap-1">
+      <button data-modal="guide" class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm">Guide</button>
+      <button id="btnFlow" class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm">Show flow</button>
+      <button data-modal="code" class="px-2 py-1 bg-blue60 text-white text-sm hover:bg-blue70">Generate code</button>
+      <button id="btnProps" class="lg:hidden px-2 py-1 border border-gray30 dark:border-gray80 text-sm">Details</button>
+    </div>
+  </div>
+  <div class="flex items-center gap-1 px-3 pb-2 overflow-x-auto scroll text-sm">
+    <button data-modal="templates" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Examples</button>
+    <button id="btnSave" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Save</button>
+    <button data-modal="io" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Export / import</button>
+    <button id="btnPrint" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Print</button>
+    <button id="btnClear" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Clear</button>
+    <span class="w-px h-5 bg-gray20 dark:bg-gray80 mx-1"></span>
+    <button id="btnZoomOut" class="px-2 py-1 border border-gray30 dark:border-gray80" aria-label="Zoom out">−</button>
+    <button id="btnZoomFit" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Fit</button>
+    <button id="btnZoomIn" class="px-2 py-1 border border-gray30 dark:border-gray80" aria-label="Zoom in">+</button>
+    <span class="w-px h-5 bg-gray20 dark:bg-gray80 mx-1"></span>
+    <label class="flex items-center gap-2 whitespace-nowrap">
+      <span class="text-gray60 dark:text-gray30">Text</span>
+      <button id="fsDown" class="px-2 py-1 border border-gray30 dark:border-gray80" aria-label="Smaller text">A−</button>
+      <input id="fsRange" type="range" min="14" max="36" step="1" value="16" class="w-24 accent-blue60" aria-label="Font size 14 to 36" />
+      <button id="fsUp" class="px-2 py-1 border border-gray30 dark:border-gray80" aria-label="Bigger text">A+</button>
+      <output id="fsOut" class="font-mono w-8 text-center">16</output>
+    </label>
+    <span class="w-px h-5 bg-gray20 dark:bg-gray80 mx-1"></span>
+    <button id="btnTheme" class="px-2 py-1 border border-gray30 dark:border-gray80 whitespace-nowrap">Dark mode</button>
+  </div>
+</header>
+
+<!-- ============================ MAIN LAYOUT ============================ -->
+<main class="flex h-[calc(100vh-96px)] min-h-[420px]">
+
+  <!-- PALETTE -->
+  <aside id="palette" class="noprint hidden lg:flex flex-col w-[280px] shrink-0 border-r border-gray20 dark:border-gray80 overflow-y-auto scroll
+              fixed lg:static inset-y-0 left-0 z-40 bg-white dark:bg-gray100 lg:z-auto">
+    <div class="p-3 border-b border-gray20 dark:border-gray80 flex items-center justify-between">
+      <h2 class="font-semibold">Service palette</h2>
+      <button id="closePalette" class="lg:hidden px-2 border border-gray30 dark:border-gray80">Close</button>
+    </div>
+    <p class="px-3 pt-3 text-sm text-gray60 dark:text-gray30">Tap a service to drop it on the canvas. On a computer you can also drag it across.</p>
+    <div id="paletteList" class="p-3 space-y-2"></div>
+    <div class="p-3 mt-auto text-sm text-gray60 dark:text-gray30 border-t border-gray20 dark:border-gray80">
+      <p class="mb-1">Build order that works every time:</p>
+      <ol class="list-decimal ml-5 space-y-0.5">
+        <li>VPC</li><li>Subnets</li><li>Security groups</li>
+        <li>Target group</li><li>Load balancer</li>
+        <li>Launch template</li><li>EC2 instances</li>
+      </ol>
+    </div>
+  </aside>
+
+  <!-- CANVAS -->
+  <section class="flex-1 flex flex-col min-w-0">
+    <div id="canvasWrap" class="relative flex-1 bg-gray10 dark:bg-gray90 overflow-hidden">
+      <svg id="canvas" class="w-full h-full touch-none" role="img" aria-label="Architecture diagram">
+        <defs>
+          <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M24 0 H0 V24" fill="none" stroke="currentColor" stroke-width="1" opacity=".18"/>
+          </pattern>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/>
+          </marker>
+        </defs>
+        <rect id="gridRect" width="100%" height="100%" fill="url(#grid)" class="text-gray30 dark:text-gray60"/>
+        <g id="viewport">
+          <g id="edgeLayer"></g>
+          <g id="nodeLayer"></g>
+        </g>
+      </svg>
+      <div id="emptyState" class="absolute inset-0 flex items-center justify-center pointer-events-none px-6">
+        <div class="max-w-md text-center pointer-events-auto">
+          <p class="text-lg font-semibold mb-2">Nothing on the canvas yet</p>
+          <p class="text-gray60 dark:text-gray30 mb-4">Start from a working example, or open the palette and place a VPC.</p>
+          <button data-modal="templates" class="px-3 py-2 bg-blue60 text-white">Load an example</button>
+          <button data-modal="guide" class="px-3 py-2 border border-gray30 dark:border-gray60 ml-1">Read the walkthrough</button>
+        </div>
+      </div>
+      <div class="noprint absolute bottom-2 left-2 flex gap-1 text-xs">
+        <span id="hint" class="bg-white/90 dark:bg-gray100/90 border border-gray20 dark:border-gray80 px-2 py-1"></span>
+      </div>
+    </div>
+
+    <!-- CHECKS STRIP -->
+    <div class="border-t border-gray20 dark:border-gray80 bg-white dark:bg-gray100">
+      <details open>
+        <summary class="px-3 py-2 flex items-center gap-2 border-b border-gray20 dark:border-gray80">
+          <span class="font-semibold">Checks</span>
+          <span id="checkCount" class="chip text-gray60"></span>
+          <span class="ml-auto text-sm text-gray60 dark:text-gray30">what is missing before this can be built</span>
+        </summary>
+        <ul id="checkList" class="max-h-[22vh] overflow-y-auto scroll divide-y divide-gray20 dark:divide-gray80 text-sm"></ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- PROPERTIES -->
+  <aside id="propsPane" class="noprint hidden lg:flex flex-col w-[340px] shrink-0 border-l border-gray20 dark:border-gray80 overflow-y-auto scroll
+             fixed lg:static inset-y-0 right-0 z-40 bg-white dark:bg-gray100">
+    <div class="p-3 border-b border-gray20 dark:border-gray80 flex items-center justify-between">
+      <h2 class="font-semibold">Properties</h2>
+      <button id="closeProps" class="lg:hidden px-2 border border-gray30 dark:border-gray80">Close</button>
+    </div>
+    <div id="propsBody" class="p-3"></div>
+  </aside>
+</main>
+
+<!-- print-only summary -->
+<div id="printOnly" style="display:none" class="p-4"></div>
+
+<!-- ============================ MODAL SHELL ============================ -->
+<div id="modalRoot" class="noprint fixed inset-0 z-50 hidden">
+  <div id="modalScrim" class="absolute inset-0 bg-black/50"></div>
+  <div class="absolute inset-x-0 bottom-0 md:inset-0 md:m-auto md:h-fit md:max-w-3xl bg-white dark:bg-gray100 border border-gray30 dark:border-gray80 flex flex-col sheet">
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-gray20 dark:border-gray80">
+      <h3 id="modalTitle" class="font-semibold text-blue70 dark:text-blue20"></h3>
+      <button id="modalClose" class="ml-auto px-2 py-1 border border-gray30 dark:border-gray80">Close</button>
+    </div>
+    <div id="modalBody" class="p-4 overflow-y-auto scroll"></div>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   AWS Solution Builder
+   One file. No build step. Everything lives in this script.
+   Reading order:
+     1. tiny helpers
+     2. AWS_REGIONS / catalogue of services (TYPES)
+     3. state + persistence
+     4. diagram rendering (SVG)
+     5. dragging, linking, zoom
+     6. properties panel
+     7. validation ("checks")
+     8. terraform + aws cli generators
+     9. templates, modals, wiring
+   ========================================================================= */
+
+/* ---------- 1. helpers ---------- */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const uid = () => 'n' + Math.random().toString(36).slice(2, 8);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const tfName = s => (String(s || 'res').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'res');
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+const AWS_REGIONS = ['us-east-1','us-east-2','us-west-1','us-west-2','ca-central-1','eu-west-1','eu-west-2','eu-central-1','ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1','sa-east-1'];
+const INSTANCE_TYPES = ['t3.micro','t3.small','t3.medium','t3.large','t3.xlarge','m5.large','m5.xlarge','m6i.large','c6i.large','r6i.large'];
+
+/* ---------- 2. the catalogue of services ---------------------------------
+   Each entry describes: how it looks, what you can fill in, what it means in
+   plain words, and how it turns into Terraform + CLI.
+   Field types: text | num | select | bool | area | ref (one link) | refs (many links)
+------------------------------------------------------------------------- */
+const ICONS = {
+  vpc:  '<rect x="3" y="4" width="18" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2"/><path d="M7 9h10M7 13h6" stroke="currentColor" stroke-width="1.6"/>',
+  subnet:'<rect x="3" y="6" width="18" height="12" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 12h18" stroke="currentColor" stroke-width="1.6"/>',
+  sg:   '<path d="M12 3l7 3v6c0 4-3 6.5-7 9-4-2.5-7-5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+  alb:  '<circle cx="12" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.2V11M5 19v-3.5h14V19M5 15.5h14" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 11h0" stroke="currentColor" stroke-width="1.6"/>',
+  tg:   '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1" fill="currentColor"/>',
+  lt:   '<path d="M6 20l3-8 3-6 3 6 3 8-6-3z" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+  ec2:  '<rect x="5" y="5" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="9" y="9" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2" stroke="currentColor" stroke-width="1.4"/>'
+};
+
+const TYPES = {
+  vpc: {
+    name: 'VPC', color: '#8a3ffc', order: 1,
+    plain: 'Your own private slice of the AWS network.',
+    what: 'A VPC (Virtual Private Cloud) is a private network you own inside AWS. Think of it as renting an empty office building. Nothing is inside it yet, but every machine you create later has to live somewhere — the VPC is that somewhere. It has an address range (a CIDR block) and everything inside gets an address from that range.',
+    needs: ['A CIDR block — the range of private addresses. 10.0.0.0/16 gives you about 65,000 addresses, which is plenty.',
+            'DNS hostnames turned on if you want instances to reach each other by name instead of by number.',
+            'A region — the part of the world your building sits in. Pick one close to your users.'],
+    docs: [['VPC user guide','https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html'],
+           ['CIDR sizing','https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html'],
+           ['Terraform aws_vpc','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'main-vpc', req:true, help:'A label for you and your team. It becomes the Name tag.'},
+      {k:'region', l:'Region', t:'select', opts:AWS_REGIONS, def:'us-east-1', req:true, help:'Where in the world this runs.'},
+      {k:'cidr', l:'CIDR block', t:'text', def:'10.0.0.0/16', req:true, ph:'10.0.0.0/16', help:'The address range for the whole network.'},
+      {k:'dns', l:'Enable DNS hostnames', t:'bool', def:true, help:'Lets instances get names like ip-10-0-1-23.'},
+      {k:'igw', l:'Attach an internet gateway', t:'bool', def:true, help:'Needed if anything inside must reach or be reached from the internet.'}
+    ]
+  },
+
+  subnet: {
+    name: 'Subnet', color: '#009d9a', order: 2,
+    plain: 'A floor of the building, in one data centre.',
+    what: 'A subnet is a smaller slice of your VPC that sits in exactly one Availability Zone (a physical data centre). You split your VPC into subnets so you can put some things where the internet can reach them and other things where it cannot. A public subnet routes to the internet gateway. A private subnet does not.',
+    needs: ['The VPC it belongs to.',
+            'Its own smaller CIDR that fits inside the VPC CIDR, like 10.0.1.0/24.',
+            'An Availability Zone. Always use at least two different zones so one data centre failing does not take you down.',
+            'Public or private — public means a route to the internet gateway.'],
+    docs: [['Subnets','https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html'],
+           ['Availability Zones','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html'],
+           ['Terraform aws_subnet','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'public-a', req:true},
+      {k:'vpc', l:'VPC', t:'ref', of:'vpc', req:true, edge:'contain', help:'Which network this subnet is carved out of.'},
+      {k:'cidr', l:'CIDR block', t:'text', def:'10.0.1.0/24', req:true, help:'Must fit inside the VPC range and not overlap another subnet.'},
+      {k:'az', l:'Availability Zone', t:'select', opts:['a','b','c','d'], def:'a', req:true, help:'Letter of the data centre inside the region.'},
+      {k:'public', l:'Public subnet', t:'bool', def:true, help:'On means it has a route to the internet gateway.'},
+      {k:'autoip', l:'Auto-assign public IP', t:'bool', def:true, help:'Instances launched here get a public address automatically.'}
+    ]
+  },
+
+  sg: {
+    name: 'Security group', color: '#24a148', order: 3,
+    plain: 'A firewall wrapped around one or more machines.',
+    what: 'A security group is a list of "who is allowed to talk to me". It is attached to a load balancer, an instance, or anything else with a network card. It only has allow rules — anything not listed is blocked. It is stateful, which means if you allow traffic in, the reply is automatically allowed back out. You do not need a matching rule for the answer.',
+    needs: ['The VPC it lives in.',
+            'Inbound rules: protocol, port, and the source. The source can be an address range like 0.0.0.0/0 (the whole internet) or another security group.',
+            'A common pattern: the load balancer group allows 443 from the internet, and the app group allows 8080 only from the load balancer group.'],
+    docs: [['Security groups','https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html'],
+           ['Security group rules','https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html'],
+           ['Terraform aws_security_group','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-sg', req:true},
+      {k:'vpc', l:'VPC', t:'ref', of:'vpc', req:true, edge:'contain'},
+      {k:'desc', l:'Description', t:'text', def:'Managed by AWS Solution Builder'},
+      {k:'ingress', l:'Inbound rules', t:'area', rows:4, def:'tcp:443:0.0.0.0/0',
+       ph:'tcp:443:0.0.0.0/0\ntcp:8080:sg-app',
+       help:'One rule per line as protocol:port:source. Source can be a CIDR like 10.0.0.0/16, 0.0.0.0/0 for the internet, or the name of another security group on the canvas.'},
+      {k:'egressAll', l:'Allow all outbound', t:'bool', def:true, help:'Usually on, so the machine can download updates.'}
+    ]
+  },
+
+  tg: {
+    name: 'Target group', color: '#ff832b', order: 4,
+    plain: 'The list of machines the load balancer sends traffic to.',
+    what: 'A target group is a named bucket of destinations plus a health check. The load balancer does not know about your servers directly — it knows about the target group, and the target group knows about the servers. Every few seconds it calls a health check URL on each server. If a server fails a few times in a row it is taken out of rotation, and traffic goes to the healthy ones instead.',
+    needs: ['The VPC, because targets have to be reachable inside it.',
+            'The port and protocol your application actually listens on — not the port users type. Users hit 443 on the load balancer; your app might listen on 8080.',
+            'A health check path that returns HTTP 200 quickly and does not need a login.',
+            'The instances that belong in it.'],
+    docs: [['Target groups','https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html'],
+           ['Health checks','https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html'],
+           ['Terraform aws_lb_target_group','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb_target_group']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-tg', req:true},
+      {k:'vpc', l:'VPC', t:'ref', of:'vpc', req:true, edge:'contain'},
+      {k:'port', l:'Target port', t:'num', def:8080, req:true, help:'The port your software listens on inside the machine.'},
+      {k:'protocol', l:'Protocol', t:'select', opts:['HTTP','HTTPS'], def:'HTTP'},
+      {k:'hcPath', l:'Health check path', t:'text', def:'/', req:true, help:'A URL path that answers 200 when the app is ready.'},
+      {k:'hcMatcher', l:'Expected status codes', t:'text', def:'200'},
+      {k:'hcInterval', l:'Check every (seconds)', t:'num', def:30},
+      {k:'healthy', l:'Healthy after (checks)', t:'num', def:2},
+      {k:'unhealthy', l:'Unhealthy after (checks)', t:'num', def:3},
+      {k:'deregDelay', l:'Draining time (seconds)', t:'num', def:30, help:'How long to let existing requests finish before removing a server.'},
+      {k:'stickiness', l:'Sticky sessions', t:'bool', def:false, help:'Send the same visitor back to the same server. Keycloak and NiFi are happier with this on.'},
+      {k:'targets', l:'Instances in this group', t:'refs', of:'ec2', edge:'flow', help:'Pick the EC2 instances that should receive traffic.'}
+    ]
+  },
+
+  alb: {
+    name: 'Load balancer', color: '#0f62fe', order: 5,
+    plain: 'The front door. One address, many servers behind it.',
+    what: 'An Application Load Balancer is the single public address visitors use. It accepts the connection, decides which healthy server should answer, and forwards the request there. It is also where your TLS certificate lives, so your servers can speak plain HTTP internally while visitors get HTTPS. It must sit in at least two subnets in two different Availability Zones.',
+    needs: ['Two or more subnets in different zones. This is a hard AWS rule, not a suggestion.',
+            'A security group that allows the ports visitors use, normally 80 and 443.',
+            'A listener: the port it listens on and what to do with the request. Here it forwards to a target group.',
+            'internet-facing if the public should reach it, internal if only your own network should.'],
+    docs: [['Application Load Balancer','https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html'],
+           ['Listeners','https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-listeners.html'],
+           ['Terraform aws_lb','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-alb', req:true},
+      {k:'scheme', l:'Scheme', t:'select', opts:['internet-facing','internal'], def:'internet-facing'},
+      {k:'subnets', l:'Subnets', t:'refs', of:'subnet', req:true, edge:'contain', help:'Choose at least two, in different zones.'},
+      {k:'securityGroups', l:'Security groups', t:'refs', of:'sg', req:true, edge:'attach'},
+      {k:'listenPort', l:'Listener port', t:'num', def:443, req:true, help:'443 for HTTPS, 80 for plain HTTP.'},
+      {k:'listenProtocol', l:'Listener protocol', t:'select', opts:['HTTPS','HTTP'], def:'HTTPS'},
+      {k:'certArn', l:'Certificate ARN', t:'text', ph:'arn:aws:acm:us-east-1:1234:certificate/…', help:'Required for HTTPS. Request a free certificate in AWS Certificate Manager.'},
+      {k:'targetGroup', l:'Forward to target group', t:'ref', of:'tg', req:true, edge:'flow'},
+      {k:'redirect80', l:'Redirect port 80 to HTTPS', t:'bool', def:true},
+      {k:'idle', l:'Idle timeout (seconds)', t:'num', def:60}
+    ]
+  },
+
+  lt: {
+    name: 'Launch template', color: '#0043ce', order: 6,
+    plain: 'The recipe every server is built from.',
+    what: 'A launch template is a saved recipe for building an EC2 instance: which operating system image, how big, which key, which firewall, how much disk, and a startup script. Instead of clicking through the same settings every time, you write them once. Every instance built from the template comes out identical, which is exactly what you want when a load balancer is spreading traffic across several of them.',
+    needs: ['An AMI ID — the operating system image. These IDs are different in every region.',
+            'An instance type, which is the size. t3.micro is tiny and cheap; t3.medium suits most small apps.',
+            'Security groups to attach to every instance built from it.',
+            'User data: a shell script that runs once, the first time the machine boots. This is where you install and start your software.'],
+    docs: [['Launch templates','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-launch-templates.html'],
+           ['Running commands at launch','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/user-data.html'],
+           ['Finding an AMI','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/finding-an-ami.html'],
+           ['Terraform aws_launch_template','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/launch_template']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-lt', req:true},
+      {k:'ami', l:'AMI ID', t:'text', def:'ami-0c02fb55956c7d316', req:true, ph:'ami-0123456789abcdef0', help:'The disk image to boot. Copy the one for your region from the AWS console.'},
+      {k:'instanceType', l:'Instance type', t:'select', opts:INSTANCE_TYPES, def:'t3.medium', req:true},
+      {k:'keyName', l:'SSH key pair name', t:'text', ph:'my-keypair', help:'Leave blank if you connect with Session Manager instead of SSH.'},
+      {k:'securityGroups', l:'Security groups', t:'refs', of:'sg', req:true, edge:'attach', help:'Every instance from this template gets these.'},
+      {k:'subnet', l:'Default subnet', t:'ref', of:'subnet', edge:'contain', help:'Optional hint. Instances can still override it.'},
+      {k:'iamProfile', l:'IAM instance profile', t:'text', ph:'ec2-ssm-profile', help:'Gives the machine permission to talk to other AWS services without storing keys on it.'},
+      {k:'volumeSize', l:'Root disk size (GB)', t:'num', def:20},
+      {k:'imdsv2', l:'Require IMDSv2', t:'bool', def:true, help:'A security setting. Leave it on.'},
+      {k:'monitoring', l:'Detailed monitoring', t:'bool', def:false},
+      {k:'userData', l:'User data (startup script)', t:'area', rows:12, mono:true,
+       def:'#!/bin/bash\nset -euxo pipefail\ndnf -y update\n',
+       help:'Runs once as root on first boot. Start it with #!/bin/bash. Keep it short and make it safe to run twice.'}
+    ]
+  },
+
+  ec2: {
+    name: 'EC2 instance', color: '#161616', order: 7,
+    plain: 'An actual virtual machine running your software.',
+    what: 'EC2 is a rented computer. It boots the image you chose, runs your startup script, and then runs your application. Instances are disposable by design: if one breaks, you throw it away and let a new one come up from the same launch template. That is why the interesting configuration belongs in the template and not in a machine you logged into by hand.',
+    needs: ['A subnet, which decides the zone and whether it can be reached from the internet.',
+            'Either a launch template (recommended) or its own AMI, size and security groups.',
+            'Membership in a target group, if a load balancer should send it traffic.'],
+    docs: [['What is EC2','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html'],
+           ['Instance types','https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html'],
+           ['Terraform aws_instance','https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance']],
+    fields: [
+      {k:'name', l:'Name', t:'text', def:'app-1', req:true},
+      {k:'launchTemplate', l:'Launch template', t:'ref', of:'lt', edge:'attach', help:'Recommended. Settings below are only used when this is empty.'},
+      {k:'subnet', l:'Subnet', t:'ref', of:'subnet', req:true, edge:'contain'},
+      {k:'ami', l:'AMI ID (only without a template)', t:'text', ph:'ami-0123456789abcdef0'},
+      {k:'instanceType', l:'Instance type (only without a template)', t:'select', opts:[''].concat(INSTANCE_TYPES), def:''},
+      {k:'securityGroups', l:'Security groups (only without a template)', t:'refs', of:'sg', edge:'attach'},
+      {k:'publicIp', l:'Give it a public IP', t:'bool', def:false, help:'Usually off. Let the load balancer be the only public thing.'}
+    ]
+  }
+};
+const TYPE_KEYS = Object.keys(TYPES).sort((a,b) => TYPES[a].order - TYPES[b].order);
+
+/* ---------- 3. state + persistence ---------- */
+const SCHEMA_ID = 'aws-solution-builder';
+const SCHEMA_VERSION = 1;
+const LS_KEY = 'asb.doc.v1';
+const LS_PREF = 'asb.pref.v1';
+
+let state = { title: 'Untitled design', nodes: [], selected: null, view: {x: 40, y: 40, k: 1} };
+let flowMode = false;
+let linkFrom = null;
+let lastProblems = [];
+
+function defaults(type) {
+  const p = {};
+  TYPES[type].fields.forEach(f => {
+    if (f.def !== undefined) p[f.k] = f.def;
+    else if (f.t === 'refs') p[f.k] = [];
+    else if (f.t === 'bool') p[f.k] = false;
+    else p[f.k] = '';
+  });
+  return p;
+}
+function addNode(type, x, y, props) {
+  const n = { id: uid(), type, x: Math.round(x), y: Math.round(y), props: Object.assign(defaults(type), props || {}) };
+  // make the default name unique so two subnets are not both called "public-a"
+  const base = n.props.name || type;
+  let name = base, i = 2;
+  while (state.nodes.some(o => o.props.name === name)) name = base + '-' + (i++);
+  n.props.name = name;
+  state.nodes.push(n);
+  return n;
+}
+const byId = id => state.nodes.find(n => n.id === id);
+const ofType = t => state.nodes.filter(n => n.type === t);
+
+function save() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(doc())); toast('Saved to this browser'); }
+  catch (e) { toast('Could not save: ' + e.message, true); }
+}
+function autosave() { try { localStorage.setItem(LS_KEY, JSON.stringify(doc())); } catch (e) {} }
+function doc() {
+  return {
+    schema: SCHEMA_ID, version: SCHEMA_VERSION, title: state.title,
+    savedAt: new Date().toISOString(),
+    view: state.view,
+    nodes: state.nodes.map(n => ({ id:n.id, type:n.type, x:n.x, y:n.y, props:n.props }))
+  };
+}
+function loadDoc(d, quiet) {
+  if (!d || d.schema !== SCHEMA_ID) throw new Error('This file is not an AWS Solution Builder design.');
+  if (!Array.isArray(d.nodes)) throw new Error('The file has no nodes list.');
+  state.title = d.title || 'Untitled design';
+  state.nodes = d.nodes.filter(n => TYPES[n.type]).map(n => ({
+    id: n.id || uid(), type: n.type, x: +n.x || 0, y: +n.y || 0,
+    props: Object.assign(defaults(n.type), n.props || {})
+  }));
+  // drop links that point at nodes which are not here
+  const ids = new Set(state.nodes.map(n => n.id));
+  state.nodes.forEach(n => TYPES[n.type].fields.forEach(f => {
+    if (f.t === 'ref' && n.props[f.k] && !ids.has(n.props[f.k])) n.props[f.k] = '';
+    if (f.t === 'refs') n.props[f.k] = (n.props[f.k] || []).filter(id => ids.has(id));
+  }));
+  state.selected = null;
+  if (d.view) state.view = d.view;
+  renderAll();
+  if (!quiet) toast('Design loaded');
+}
+
+/* ---------- 4. rendering the diagram ---------- */
+const svg = $('#canvas'), vp = $('#viewport'), edgeLayer = $('#edgeLayer'), nodeLayer = $('#nodeLayer');
+const NW = 190, NH = 76;
+
+function edgesOf() {
+  const out = [];
+  state.nodes.forEach(n => {
+    TYPES[n.type].fields.forEach(f => {
+      if (!f.edge) return;
+      const v = n.props[f.k];
+      const list = f.t === 'refs' ? (v || []) : (v ? [v] : []);
+      list.forEach(t => { if (byId(t)) out.push({ from: n.id, to: t, kind: f.edge, label: f.l }); });
+    });
+  });
+  return out;
+}
+
+function borderPoint(a, b) { // where the line leaves box a heading to box b
+  const ax = a.x + NW/2, ay = a.y + NH/2, bx = b.x + NW/2, by = b.y + NH/2;
+  const dx = bx - ax, dy = by - ay;
+  if (!dx && !dy) return {x: ax, y: ay};
+  const sx = (NW/2 + 6) / Math.abs(dx || 1e-6), sy = (NH/2 + 6) / Math.abs(dy || 1e-6);
+  const s = Math.min(sx, sy);
+  return { x: ax + dx * s, y: ay + dy * s };
+}
+
+const EDGE_STYLE = {
+  contain: { stroke: '#8d8d8d', dash: '4 4', width: 1.5 },
+  attach:  { stroke: '#24a148', dash: '',    width: 1.5 },
+  flow:    { stroke: '#0f62fe', dash: '',    width: 2.5 }
+};
+
+function renderEdges() {
+  edgeLayer.innerHTML = edgesOf().map(e => {
+    const a = byId(e.from), b = byId(e.to);
+    if (!a || !b) return '';
+    const p1 = borderPoint(a, b), p2 = borderPoint(b, a);
+    const st = EDGE_STYLE[e.kind] || EDGE_STYLE.attach;
+    const isFlow = e.kind === 'flow';
+    const dim = flowMode && !isFlow;
+    return '<line x1="' + p1.x + '" y1="' + p1.y + '" x2="' + p2.x + '" y2="' + p2.y + '"' +
+      ' stroke="' + st.stroke + '" stroke-width="' + st.width + '"' +
+      (st.dash ? ' stroke-dasharray="' + st.dash + '"' : '') +
+      ' opacity="' + (dim ? .15 : .9) + '"' +
+      ' marker-end="url(#arrow)"' +
+      (flowMode && isFlow ? ' class="flowline"' : '') + '/>';
+  }).join('');
+}
+
+function nodeIssueIcons(n, problems) {
+  const mine = problems.filter(p => p.node === n.id);
+  const err = mine.filter(p => p.level === 'error').length;
+  const warn = mine.filter(p => p.level === 'warn').length;
+  let out = '';
+  if (err) out += '<g transform="translate(' + (NW - 26) + ',6)"><circle r="9" cx="9" cy="9" fill="#da1e28"/><text x="9" y="13" text-anchor="middle" font-size="12" fill="#fff" font-weight="700">!</text></g>';
+  else if (warn) out += '<g transform="translate(' + (NW - 26) + ',6)"><circle r="9" cx="9" cy="9" fill="#f1c21b"/><text x="9" y="13" text-anchor="middle" font-size="12" fill="#161616" font-weight="700">?</text></g>';
+  else out += '<g transform="translate(' + (NW - 26) + ',6)"><circle r="9" cx="9" cy="9" fill="#24a148"/><path d="M5 9.5 L8 12.5 L13.5 6.5" stroke="#fff" stroke-width="2" fill="none"/></g>';
+  return out;
+}
+
+function summaryLine(n) {
+  const p = n.props;
+  switch (n.type) {
+    case 'vpc': return p.cidr + ' · ' + p.region;
+    case 'subnet': return p.cidr + ' · ' + (p.region || '') + (p.az ? 'zone ' + p.az : '') + ' · ' + (p.public ? 'public' : 'private');
+    case 'sg': return ((p.ingress || '').split('\n').filter(Boolean).length) + ' inbound rule(s)';
+    case 'tg': return p.protocol + ' ' + p.port + ' · health ' + p.hcPath;
+    case 'alb': return p.listenProtocol + ' ' + p.listenPort + ' · ' + p.scheme;
+    case 'lt': return p.instanceType + ' · ' + (p.ami || 'no AMI');
+    case 'ec2': { const lt = byId(p.launchTemplate); return (lt ? 'from ' + lt.props.name : (p.instanceType || 'no size')); }
+  }
+  return '';
+}
+
+function renderNodes(problems) {
+  nodeLayer.innerHTML = state.nodes.map(n => {
+    const T = TYPES[n.type];
+    const sel = state.selected === n.id;
+    const inFlow = ['alb','tg','ec2'].includes(n.type);
+    const dim = flowMode && !inFlow;
+    return '' +
+    '<g class="node" data-id="' + n.id + '" transform="translate(' + n.x + ',' + n.y + ')" opacity="' + (dim ? .3 : 1) + '" tabindex="0" role="button" aria-label="' + esc(T.name + ' ' + n.props.name) + '">' +
+      '<rect width="' + NW + '" height="' + NH + '" fill="var(--nodebg)" stroke="' + (sel ? '#0f62fe' : 'var(--nodeline)') + '" stroke-width="' + (sel ? 3 : 1.5) + '"/>' +
+      '<rect width="6" height="' + NH + '" fill="' + T.color + '"/>' +
+      '<g transform="translate(16,14) scale(1.05)" color="' + T.color + '">' + ICONS[n.type] + '</g>' +
+      '<text x="52" y="26" font-size="13" font-weight="600" fill="var(--nodefg)">' + esc(clip(n.props.name, 17)) + '</text>' +
+      '<text x="52" y="44" font-size="11" fill="var(--nodemuted)">' + esc(T.name) + '</text>' +
+      '<text x="16" y="66" font-size="11" fill="var(--nodemuted)" font-family="IBM Plex Mono, monospace">' + esc(clip(summaryLine(n), 30)) + '</text>' +
+      nodeIssueIcons(n, problems) +
+    '</g>';
+  }).join('');
+}
+const clip = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+
+function applyView() { vp.setAttribute('transform', 'translate(' + state.view.x + ',' + state.view.y + ') scale(' + state.view.k + ')'); }
+
+function renderAll() {
+  const problems = lastProblems = validate();
+  renderEdges();
+  renderNodes(problems);
+  applyView();
+  renderChecks(problems);
+  renderProps();
+  $('#emptyState').style.display = state.nodes.length ? 'none' : 'flex';
+  autosave();
+}
+
+/* ---------- 5. dragging, linking, zoom ---------- */
+let drag = null;
+function svgPoint(evt) {
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  const m = vp.getScreenCTM();
+  return m ? pt.matrixTransform(m.inverse()) : {x:0, y:0};
+}
+svg.addEventListener('pointerdown', e => {
+  const g = e.target.closest('.node');
+  const p = svgPoint(e);
+  if (g) {
+    const n = byId(g.dataset.id);
+    if (linkFrom) { finishLink(n); return; }
+    select(n.id);
+    drag = { id: n.id, dx: p.x - n.x, dy: p.y - n.y, moved: false };
+    g.classList.add('dragging');
+    svg.setPointerCapture(e.pointerId);
+  } else {
+    if (linkFrom) { linkFrom = null; setHint(''); return; }
+    select(null);
+    drag = { pan: true, sx: e.clientX, sy: e.clientY, vx: state.view.x, vy: state.view.y };
+    svg.setPointerCapture(e.pointerId);
+  }
+});
+svg.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (drag.pan) {
+    state.view.x = drag.vx + (e.clientX - drag.sx);
+    state.view.y = drag.vy + (e.clientY - drag.sy);
+    applyView(); return;
+  }
+  const p = svgPoint(e), n = byId(drag.id);
+  if (!n) return;
+  n.x = Math.round((p.x - drag.dx) / 8) * 8;
+  n.y = Math.round((p.y - drag.dy) / 8) * 8;
+  drag.moved = true;
+  renderEdges(); renderNodes(lastProblems);
+});
+svg.addEventListener('pointerup', () => { if (drag && !drag.pan) autosave(); drag = null; $$('.node.dragging').forEach(g => g.classList.remove('dragging')); });
+svg.addEventListener('pointercancel', () => { drag = null; });
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const k = clamp(state.view.k * (e.deltaY > 0 ? 0.9 : 1.1), 0.25, 2.5);
+  const r = svg.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  state.view.x = mx - (mx - state.view.x) * (k / state.view.k);
+  state.view.y = my - (my - state.view.y) * (k / state.view.k);
+  state.view.k = k; applyView();
+}, {passive:false});
+
+function zoom(f) { state.view.k = clamp(state.view.k * f, .25, 2.5); applyView(); }
+function fit() {
+  if (!state.nodes.length) { state.view = {x:40, y:40, k:1}; applyView(); return; }
+  const xs = state.nodes.map(n => n.x), ys = state.nodes.map(n => n.y);
+  const minX = Math.min.apply(null, xs) - 40, minY = Math.min.apply(null, ys) - 40;
+  const maxX = Math.max.apply(null, xs) + NW + 40, maxY = Math.max.apply(null, ys) + NH + 40;
+  const r = svg.getBoundingClientRect();
+  const k = clamp(Math.min(r.width / (maxX - minX), r.height / (maxY - minY)), .25, 1.4);
+  state.view = { k, x: -minX * k + (r.width - (maxX - minX) * k) / 2, y: -minY * k + (r.height - (maxY - minY) * k) / 2 };
+  applyView();
+}
+
+/* linking: pick a source, then click a target; we set the right property */
+const LINK_RULES = [
+  ['alb','tg','targetGroup'], ['alb','subnet','subnets'], ['alb','sg','securityGroups'],
+  ['tg','ec2','targets'], ['tg','vpc','vpc'],
+  ['lt','sg','securityGroups'], ['lt','subnet','subnet'],
+  ['ec2','lt','launchTemplate'], ['ec2','subnet','subnet'], ['ec2','sg','securityGroups'],
+  ['sg','vpc','vpc'], ['subnet','vpc','vpc']
+];
+function startLink(id) { linkFrom = id; setHint('Now tap the service to connect to. Tap empty space to cancel.'); }
+function finishLink(target) {
+  const src = byId(linkFrom); linkFrom = null; setHint('');
+  if (!src || !target || src.id === target.id) return;
+  let rule = LINK_RULES.find(r => r[0] === src.type && r[1] === target.type);
+  let a = src, b = target;
+  if (!rule) { rule = LINK_RULES.find(r => r[0] === target.type && r[1] === src.type); if (rule) { a = target; b = src; } }
+  if (!rule) { toast('A ' + TYPES[src.type].name + ' cannot connect to a ' + TYPES[target.type].name, true); return; }
+  const f = TYPES[a.type].fields.find(x => x.k === rule[2]);
+  if (f.t === 'refs') { const arr = a.props[f.k] || []; if (!arr.includes(b.id)) arr.push(b.id); a.props[f.k] = arr; }
+  else a.props[f.k] = b.id;
+  toast('Connected: ' + a.props.name + ' → ' + b.props.name);
+  renderAll();
+}
+let hintTimer;
+function setHint(t) { const h = $('#hint'); h.textContent = t; h.style.display = t ? 'block' : 'none'; }
+function toast(msg, bad) {
+  setHint(msg);
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => setHint(''), 3200);
+  $('#hint').style.color = bad ? '#da1e28' : '';
+}
+
+/* ---------- 6. properties panel ---------- */
+function select(id) { state.selected = id; renderProps(); renderNodes(validate()); renderEdges(); }
+
+function refOptions(f, current) {
+  const list = ofType(f.of);
+  if (!list.length) return '<p class="text-sm text-red60">No ' + esc(TYPES[f.of].name.toLowerCase()) + ' on the canvas yet. Add one first.</p>';
+  if (f.t === 'ref') {
+    return '<select class="field" data-k="' + f.k + '">' +
+      '<option value="">— none —</option>' +
+      list.map(o => '<option value="' + o.id + '"' + (current === o.id ? ' selected' : '') + '>' + esc(o.props.name) + ' (' + esc(summaryLine(o)) + ')</option>').join('') +
+      '</select>';
+  }
+  const cur = current || [];
+  return '<div class="border border-gray20 dark:border-gray80 p-2 space-y-1 max-h-44 overflow-y-auto scroll">' +
+    list.map(o => '<label class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 accent-blue60" data-k="' + f.k + '" value="' + o.id + '"' + (cur.includes(o.id) ? ' checked' : '') + '><span>' + esc(o.props.name) + ' <span class="text-gray60">' + esc(summaryLine(o)) + '</span></span></label>').join('') +
+    '</div>';
+}
+
+function fieldHtml(n, f) {
+  const v = n.props[f.k];
+  const label = '<div class="flex items-baseline gap-2"><label class="font-medium text-sm" for="f_' + f.k + '">' + esc(f.l) + '</label>' +
+    (f.req ? '<span class="chip text-red60">required</span>' : '') + '</div>';
+  let input = '';
+  if (f.t === 'text') input = '<input id="f_' + f.k + '" class="field" data-k="' + f.k + '" value="' + esc(v) + '" placeholder="' + esc(f.ph || '') + '">';
+  else if (f.t === 'num') input = '<input id="f_' + f.k + '" type="number" class="field" data-k="' + f.k + '" value="' + esc(v) + '">';
+  else if (f.t === 'bool') input = '<label class="flex items-center gap-2 text-sm"><input type="checkbox" class="accent-blue60 w-4 h-4" data-k="' + f.k + '"' + (v ? ' checked' : '') + '> <span>' + (v ? 'On' : 'Off') + '</span></label>';
+  else if (f.t === 'select') input = '<select id="f_' + f.k + '" class="field" data-k="' + f.k + '">' + f.opts.map(o => '<option value="' + esc(o) + '"' + (String(v) === String(o) ? ' selected' : '') + '>' + esc(o || '— none —') + '</option>').join('') + '</select>';
+  else if (f.t === 'area') input = '<textarea id="f_' + f.k + '" class="field ' + (f.mono ? 'font-mono text-sm' : '') + '" rows="' + (f.rows || 3) + '" data-k="' + f.k + '" placeholder="' + esc(f.ph || '') + '">' + esc(v) + '</textarea>';
+  else input = refOptions(f, v);
+  return '<div class="space-y-1">' + label + input +
+    (f.help ? '<p class="text-sm text-gray60 dark:text-gray30">' + esc(f.help) + '</p>' : '') + '</div>';
+}
+
+function renderProps() {
+  const body = $('#propsBody');
+  const n = byId(state.selected);
+  if (!n) {
+    body.innerHTML = '<p class="text-gray60 dark:text-gray30">Nothing is selected. Tap a box on the canvas to edit it, or add a service from the palette.</p>' +
+      '<div class="mt-4 space-y-2 text-sm">' +
+      '<p class="font-semibold">What the marks on each box mean</p>' +
+      '<p><span class="inline-block w-3 h-3 align-middle" style="background:#24a148"></span> ready to build</p>' +
+      '<p><span class="inline-block w-3 h-3 align-middle" style="background:#f1c21b"></span> works, but worth a second look</p>' +
+      '<p><span class="inline-block w-3 h-3 align-middle" style="background:#da1e28"></span> something required is missing</p>' +
+      '<p class="pt-2 font-semibold">Line colours</p>' +
+      '<p><span style="color:#0f62fe">━</span> traffic path &nbsp; <span style="color:#24a148">━</span> attached to &nbsp; <span style="color:#8d8d8d">╌</span> lives inside</p>' +
+      '</div>';
+    return;
+  }
+  const T = TYPES[n.type];
+  body.innerHTML =
+    '<div class="flex items-start gap-2 mb-3">' +
+      '<svg viewBox="0 0 24 24" width="28" height="28" style="color:' + T.color + '">' + ICONS[n.type] + '</svg>' +
+      '<div class="min-w-0"><p class="font-semibold leading-tight">' + esc(T.name) + '</p>' +
+      '<p class="text-sm text-gray60 dark:text-gray30">' + esc(T.plain) + '</p></div>' +
+    '</div>' +
+    '<div class="flex flex-wrap gap-1 mb-4">' +
+      '<button class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm" data-act="explain">What is this?</button>' +
+      '<button class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm" data-act="link">Connect to…</button>' +
+      '<button class="px-2 py-1 border border-gray30 dark:border-gray80 text-sm" data-act="dupe">Duplicate</button>' +
+      '<button class="px-2 py-1 border border-red60 text-red60 text-sm" data-act="del">Delete</button>' +
+    '</div>' +
+    '<div class="space-y-4">' + T.fields.map(f => fieldHtml(n, f)).join('') + '</div>' +
+    '<div class="mt-5 pt-3 border-t border-gray20 dark:border-gray80">' +
+      '<p class="font-semibold text-sm mb-1">Official documentation</p>' +
+      '<ul class="space-y-1 text-sm">' + T.docs.map(d => '<li><a class="text-blue70 dark:text-blue20 underline" target="_blank" rel="noopener" href="' + d[1] + '">' + esc(d[0]) + '</a></li>').join('') + '</ul>' +
+    '</div>';
+
+  body.oninput = e => {
+    const el = e.target, k = el.dataset.k;
+    if (!k) return;
+    const f = T.fields.find(x => x.k === k);
+    if (f.t === 'refs') {
+      const boxes = $$('input[type=checkbox][data-k="' + k + '"]', body);
+      n.props[k] = boxes.filter(b => b.checked).map(b => b.value);
+    } else if (f.t === 'bool') n.props[k] = el.checked;
+    else if (f.t === 'num') n.props[k] = el.value === '' ? '' : Number(el.value);
+    else n.props[k] = el.value;
+
+    const keep = document.activeElement === el ? {k, pos: el.selectionStart} : null;
+    renderEdges(); renderNodes(validate()); renderChecks(validate()); autosave();
+    if (f.t === 'bool' || f.t === 'ref' || f.t === 'refs') { renderProps(); }
+    if (keep) { const el2 = $('[data-k="' + keep.k + '"]', body); if (el2 && el2.setSelectionRange) { el2.focus(); try { el2.setSelectionRange(keep.pos, keep.pos); } catch (x) {} } }
+  };
+  body.onclick = e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'del') { deleteNode(n.id); }
+    if (act === 'dupe') { const c = addNode(n.type, n.x + 24, n.y + 24, JSON.parse(JSON.stringify(n.props))); select(c.id); renderAll(); }
+    if (act === 'link') { startLink(n.id); closeDrawers(); }
+    if (act === 'explain') { openModal('service', n.type); }
+  };
+}
+
+function deleteNode(id) {
+  state.nodes = state.nodes.filter(n => n.id !== id);
+  state.nodes.forEach(n => TYPES[n.type].fields.forEach(f => {
+    if (f.t === 'ref' && n.props[f.k] === id) n.props[f.k] = '';
+    if (f.t === 'refs') n.props[f.k] = (n.props[f.k] || []).filter(x => x !== id);
+  }));
+  state.selected = null;
+  renderAll();
+}
+
+/* ---------- 7. validation ---------- */
+function validate() {
+  const out = [];
+  const add = (level, node, msg, fix) => out.push({level, node, msg, fix});
+
+  if (!state.nodes.length) return out;
+  if (!ofType('vpc').length) add('error', null, 'There is no VPC. Everything else needs a network to live in.', 'Add a VPC from the palette.');
+
+  state.nodes.forEach(n => {
+    const T = TYPES[n.type], p = n.props;
+    T.fields.forEach(f => {
+      if (!f.req) return;
+      const v = p[f.k];
+      const empty = f.t === 'refs' ? !(v && v.length) : (v === '' || v === null || v === undefined);
+      if (empty) add('error', n.id, TYPES[n.type].name + ' "' + p.name + '" is missing ' + f.l.toLowerCase() + '.', 'Open it and fill in ' + f.l + '.');
+    });
+
+    if (n.type === 'vpc' && p.cidr && !/^\d+\.\d+\.\d+\.\d+\/\d{1,2}$/.test(p.cidr)) add('error', n.id, 'VPC "' + p.name + '" has a CIDR that does not look right.', 'Use something like 10.0.0.0/16.');
+    if (n.type === 'subnet') {
+      if (p.cidr && !/^\d+\.\d+\.\d+\.\d+\/\d{1,2}$/.test(p.cidr)) add('error', n.id, 'Subnet "' + p.name + '" has a CIDR that does not look right.', 'Use something like 10.0.1.0/24.');
+      const twin = ofType('subnet').filter(s => s.id !== n.id && s.props.cidr === p.cidr && s.props.vpc === p.vpc);
+      if (p.cidr && twin.length) add('error', n.id, 'Subnet "' + p.name + '" uses the same CIDR as "' + twin[0].props.name + '". Subnets cannot overlap.', 'Give each subnet its own range.');
+    }
+    if (n.type === 'sg') {
+      const rules = (p.ingress || '').split('\n').map(s => s.trim()).filter(Boolean);
+      if (!rules.length) add('warn', n.id, 'Security group "' + p.name + '" has no inbound rules, so nothing can reach it.', 'Add a rule like tcp:443:0.0.0.0/0.');
+      rules.forEach(r => {
+        if (!/^\w+:\d+(-\d+)?:.+$/.test(r)) add('error', n.id, 'Rule "' + r + '" in "' + p.name + '" is not in the protocol:port:source shape.', 'Example: tcp:8080:10.0.0.0/16');
+        else if (/:22:0\.0\.0\.0\/0$/.test(r)) add('warn', n.id, 'Security group "' + p.name + '" opens SSH to the whole internet.', 'Limit it to your office address, or use Session Manager instead.');
+      });
+    }
+    if (n.type === 'alb') {
+      const subs = (p.subnets || []).map(byId).filter(Boolean);
+      if (subs.length < 2) add('error', n.id, 'Load balancer "' + p.name + '" needs at least two subnets.', 'Tick a second subnet in the Properties panel.');
+      const zones = new Set(subs.map(s => s.props.az));
+      if (subs.length >= 2 && zones.size < 2) add('error', n.id, 'Load balancer "' + p.name + '" uses subnets that are all in the same zone.', 'Pick subnets in two different Availability Zones.');
+      if (p.scheme === 'internet-facing' && subs.some(s => !s.props.public)) add('warn', n.id, 'Load balancer "' + p.name + '" is public but sits in a private subnet.', 'Use public subnets for an internet-facing load balancer.');
+      if (p.listenProtocol === 'HTTPS' && !p.certArn) add('error', n.id, 'Load balancer "' + p.name + '" listens on HTTPS but has no certificate.', 'Paste an ACM certificate ARN, or switch the listener to HTTP for testing.');
+      const tg = byId(p.targetGroup);
+      if (tg && tg.props.vpc && subs.length && subs[0].props.vpc && tg.props.vpc !== subs[0].props.vpc) add('error', n.id, 'Load balancer "' + p.name + '" and its target group are in different VPCs.', 'They must share one VPC.');
+    }
+    if (n.type === 'tg') {
+      if (!(p.targets || []).length) add('warn', n.id, 'Target group "' + p.name + '" has no instances, so the load balancer has nowhere to send traffic.', 'Tick the EC2 instances that should serve traffic.');
+      if (p.hcPath && p.hcPath[0] !== '/') add('error', n.id, 'Health check path in "' + p.name + '" must start with a slash.', 'Try /health or just /.');
+    }
+    if (n.type === 'lt') {
+      if (p.ami && !/^ami-[0-9a-f]{8,17}$/.test(p.ami)) add('warn', n.id, 'The AMI in "' + p.name + '" does not look like an AMI ID.', 'It should look like ami-0c02fb55956c7d316.');
+      if (p.userData && !/^#!/.test(p.userData.trim()) && !/^#cloud-config/.test(p.userData.trim())) add('warn', n.id, 'User data in "' + p.name + '" does not start with #!/bin/bash, so it may not run.', 'Put #!/bin/bash on the very first line.');
+    }
+    if (n.type === 'ec2') {
+      if (!p.launchTemplate && !p.ami) add('error', n.id, 'Instance "' + p.name + '" has no launch template and no AMI, so there is nothing to boot.', 'Pick a launch template — that is the easier path.');
+      if (!p.launchTemplate && !(p.securityGroups || []).length) add('error', n.id, 'Instance "' + p.name + '" has no security group.', 'Attach one, or use a launch template that has one.');
+      const inTg = ofType('tg').some(t => (t.props.targets || []).includes(n.id));
+      if (!inTg && ofType('alb').length) add('warn', n.id, 'Instance "' + p.name + '" is not in any target group, so the load balancer will ignore it.', 'Add it to a target group.');
+    }
+  });
+
+  // whole-design checks
+  const albs = ofType('alb');
+  albs.forEach(a => {
+    const tg = byId(a.props.targetGroup);
+    if (!tg) return;
+    const albSgs = (a.props.securityGroups || []).map(byId).filter(Boolean);
+    const targets = (tg.props.targets || []).map(byId).filter(Boolean);
+    targets.forEach(ins => {
+      const lt = byId(ins.props.launchTemplate);
+      const sgs = ((lt ? lt.props.securityGroups : ins.props.securityGroups) || []).map(byId).filter(Boolean);
+      const port = String(tg.props.port);
+      const opens = sgs.some(sg => (sg.props.ingress || '').split('\n').some(r => r.split(':')[1] === port));
+      if (sgs.length && !opens) add('error', ins.id, 'Nothing lets the load balancer reach "' + ins.props.name + '" on port ' + port + '.', 'Add tcp:' + port + ':' + (albSgs[0] ? albSgs[0].props.name : '10.0.0.0/16') + ' to its security group.');
+    });
+  });
+  if (ofType('ec2').length === 1 && albs.length) add('warn', null, 'Only one instance is behind the load balancer, so there is no redundancy.', 'Add a second instance in another zone.');
+  return out;
+}
+
+function renderChecks(problems) {
+  problems = problems || validate();
+  const errs = problems.filter(p => p.level === 'error').length;
+  const warns = problems.length - errs;
+  const c = $('#checkCount');
+  c.textContent = errs + ' blocking · ' + warns + ' to review';
+  c.className = 'chip ' + (errs ? 'text-red60' : warns ? 'text-gray60' : 'text-green50');
+  const list = $('#checkList');
+  if (!problems.length) {
+    list.innerHTML = '<li class="px-3 py-3 text-green50">Everything required is filled in. Open Generate code when you are ready.</li>';
+    return;
+  }
+  list.innerHTML = problems.map(p =>
+    '<li class="px-3 py-2 flex gap-3 items-start ' + (p.node ? 'cursor-pointer hover:bg-gray10 dark:hover:bg-gray90' : '') + '" data-goto="' + (p.node || '') + '">' +
+      '<span class="chip shrink-0 mt-0.5 ' + (p.level === 'error' ? 'text-red60' : 'text-gray60') + '">' + (p.level === 'error' ? 'fix' : 'check') + '</span>' +
+      '<span><span class="font-medium">' + esc(p.msg) + '</span>' + (p.fix ? ' <span class="text-gray60 dark:text-gray30">' + esc(p.fix) + '</span>' : '') + '</span>' +
+    '</li>').join('');
+}
+$('#checkList').addEventListener('click', e => {
+  const li = e.target.closest('[data-goto]');
+  if (!li || !li.dataset.goto) return;
+  select(li.dataset.goto);
+  if (window.innerWidth < 1024) openDrawer('props');
+});
+
+/* ---------- 8. generators ---------- */
+function tfRef(id, kind) {
+  const n = byId(id); if (!n) return '""';
+  const map = {vpc:'aws_vpc', subnet:'aws_subnet', sg:'aws_security_group', tg:'aws_lb_target_group', alb:'aws_lb', lt:'aws_launch_template', ec2:'aws_instance'};
+  return map[n.type] + '.' + tfName(n.props.name) + '.' + (kind || 'id');
+}
+function sourceRef(src) { // for security group rules
+  const sg = ofType('sg').find(s => s.props.name === src);
+  return sg ? {sg: 'aws_security_group.' + tfName(sg.props.name) + '.id'} : {cidr: src};
+}
+
+function genTerraform() {
+  const vpc0 = ofType('vpc')[0];
+  const region = vpc0 ? vpc0.props.region : 'us-east-1';
+  let s = '';
+  s += '# Generated by AWS Solution Builder\n';
+  s += '# Review every line before running. This is a starting point, not a finished product.\n\n';
+  s += 'terraform {\n  required_version = ">= 1.5.0"\n  required_providers {\n    aws = {\n      source  = "hashicorp/aws"\n      version = "~> 5.0"\n    }\n  }\n}\n\n';
+  s += 'provider "aws" {\n  region = "' + region + '"\n}\n\n';
+
+  ofType('vpc').forEach(n => {
+    const p = n.props, r = tfName(p.name);
+    s += 'resource "aws_vpc" "' + r + '" {\n  cidr_block           = "' + p.cidr + '"\n  enable_dns_support   = true\n  enable_dns_hostnames = ' + !!p.dns + '\n  tags = { Name = "' + p.name + '" }\n}\n\n';
+    if (p.igw) {
+      s += 'resource "aws_internet_gateway" "' + r + '_igw" {\n  vpc_id = aws_vpc.' + r + '.id\n  tags   = { Name = "' + p.name + '-igw" }\n}\n\n';
+      s += 'resource "aws_route_table" "' + r + '_public" {\n  vpc_id = aws_vpc.' + r + '.id\n  route {\n    cidr_block = "0.0.0.0/0"\n    gateway_id = aws_internet_gateway.' + r + '_igw.id\n  }\n  tags = { Name = "' + p.name + '-public-rt" }\n}\n\n';
+    }
+  });
+
+  ofType('subnet').forEach(n => {
+    const p = n.props, r = tfName(p.name), v = byId(p.vpc);
+    s += 'resource "aws_subnet" "' + r + '" {\n  vpc_id                  = ' + (v ? 'aws_vpc.' + tfName(v.props.name) + '.id' : '""') + '\n';
+    s += '  cidr_block              = "' + p.cidr + '"\n  availability_zone       = "' + ((v ? v.props.region : region) + p.az) + '"\n';
+    s += '  map_public_ip_on_launch = ' + !!p.autoip + '\n  tags = { Name = "' + p.name + '" }\n}\n\n';
+    if (p.public && v && v.props.igw) {
+      s += 'resource "aws_route_table_association" "' + r + '_assoc" {\n  subnet_id      = aws_subnet.' + r + '.id\n  route_table_id = aws_route_table.' + tfName(v.props.name) + '_public.id\n}\n\n';
+    }
+  });
+
+  ofType('sg').forEach(n => {
+    const p = n.props, r = tfName(p.name), v = byId(p.vpc);
+    s += 'resource "aws_security_group" "' + r + '" {\n  name        = "' + p.name + '"\n  description = "' + (p.desc || p.name) + '"\n  vpc_id      = ' + (v ? 'aws_vpc.' + tfName(v.props.name) + '.id' : '""') + '\n\n';
+    (p.ingress || '').split('\n').map(x => x.trim()).filter(Boolean).forEach(rule => {
+      const bits = rule.split(':'); if (bits.length < 3) return;
+      const proto = bits[0], portRange = bits[1], src = bits.slice(2).join(':');
+      const from = portRange.split('-')[0], to = portRange.split('-')[1] || from;
+      const ref = sourceRef(src);
+      s += '  ingress {\n    description     = "allow ' + proto + ' ' + portRange + ' from ' + src + '"\n';
+      s += '    from_port       = ' + from + '\n    to_port         = ' + to + '\n    protocol        = "' + proto + '"\n';
+      s += ref.sg ? '    security_groups = [' + ref.sg + ']\n' : '    cidr_blocks     = ["' + ref.cidr + '"]\n';
+      s += '  }\n\n';
+    });
+    if (p.egressAll) s += '  egress {\n    description = "allow all outbound"\n    from_port   = 0\n    to_port     = 0\n    protocol    = "-1"\n    cidr_blocks = ["0.0.0.0/0"]\n  }\n\n';
+    s += '  tags = { Name = "' + p.name + '" }\n}\n\n';
+  });
+
+  ofType('lt').forEach(n => {
+    const p = n.props, r = tfName(p.name);
+    s += 'resource "aws_launch_template" "' + r + '" {\n  name          = "' + p.name + '"\n  image_id      = "' + p.ami + '"\n  instance_type = "' + p.instanceType + '"\n';
+    if (p.keyName) s += '  key_name      = "' + p.keyName + '"\n';
+    const sgs = (p.securityGroups || []).map(id => tfRef(id)).filter(Boolean);
+    if (sgs.length) s += '  vpc_security_group_ids = [' + sgs.join(', ') + ']\n';
+    if (p.iamProfile) s += '\n  iam_instance_profile {\n    name = "' + p.iamProfile + '"\n  }\n';
+    s += '\n  block_device_mappings {\n    device_name = "/dev/xvda"\n    ebs {\n      volume_size = ' + (p.volumeSize || 20) + '\n      volume_type = "gp3"\n      encrypted   = true\n    }\n  }\n';
+    if (p.imdsv2) s += '\n  metadata_options {\n    http_tokens                 = "required"\n    http_endpoint               = "enabled"\n    http_put_response_hop_limit = 2\n  }\n';
+    if (p.monitoring) s += '\n  monitoring {\n    enabled = true\n  }\n';
+    if (p.userData) {
+      // Terraform reads ${...} and %{...} inside a heredoc as its own template syntax,
+      // so double the marker to keep the shell script exactly as written.
+      const ud = p.userData.replace(/\$\{/g, '$$${').replace(/%\{/g, '%%{');
+      s += '\n  user_data = base64encode(<<-USERDATA\n' + ud.split('\n').map(l => '    ' + l).join('\n') + '\n  USERDATA\n  )\n';
+    }
+    s += '\n  tag_specifications {\n    resource_type = "instance"\n    tags          = { Name = "' + p.name + '" }\n  }\n}\n\n';
+  });
+
+  ofType('tg').forEach(n => {
+    const p = n.props, r = tfName(p.name), v = byId(p.vpc);
+    s += 'resource "aws_lb_target_group" "' + r + '" {\n  name        = "' + p.name + '"\n  port        = ' + p.port + '\n  protocol    = "' + p.protocol + '"\n  target_type = "instance"\n  vpc_id      = ' + (v ? 'aws_vpc.' + tfName(v.props.name) + '.id' : '""') + '\n';
+    s += '  deregistration_delay = ' + (p.deregDelay || 30) + '\n\n';
+    s += '  health_check {\n    path                = "' + p.hcPath + '"\n    matcher             = "' + (p.hcMatcher || '200') + '"\n    interval            = ' + (p.hcInterval || 30) + '\n    timeout             = 5\n    healthy_threshold   = ' + (p.healthy || 2) + '\n    unhealthy_threshold = ' + (p.unhealthy || 3) + '\n  }\n';
+    if (p.stickiness) s += '\n  stickiness {\n    type            = "lb_cookie"\n    cookie_duration = 86400\n    enabled         = true\n  }\n';
+    s += '\n  tags = { Name = "' + p.name + '" }\n}\n\n';
+    (p.targets || []).forEach((id, i) => {
+      const t = byId(id); if (!t) return;
+      s += 'resource "aws_lb_target_group_attachment" "' + r + '_' + tfName(t.props.name) + '" {\n  target_group_arn = aws_lb_target_group.' + r + '.arn\n  target_id        = aws_instance.' + tfName(t.props.name) + '.id\n  port             = ' + p.port + '\n}\n\n';
+    });
+  });
+
+  ofType('alb').forEach(n => {
+    const p = n.props, r = tfName(p.name);
+    const subs = (p.subnets || []).map(id => tfRef(id)).filter(Boolean);
+    const sgs = (p.securityGroups || []).map(id => tfRef(id)).filter(Boolean);
+    s += 'resource "aws_lb" "' + r + '" {\n  name               = "' + p.name + '"\n  load_balancer_type = "application"\n  internal           = ' + (p.scheme === 'internal') + '\n';
+    s += '  subnets            = [' + subs.join(', ') + ']\n  security_groups    = [' + sgs.join(', ') + ']\n';
+    s += '  idle_timeout       = ' + (p.idle || 60) + '\n  tags               = { Name = "' + p.name + '" }\n}\n\n';
+    const tg = byId(p.targetGroup);
+    if (tg) {
+      s += 'resource "aws_lb_listener" "' + r + '_main" {\n  load_balancer_arn = aws_lb.' + r + '.arn\n  port              = ' + p.listenPort + '\n  protocol          = "' + p.listenProtocol + '"\n';
+      if (p.listenProtocol === 'HTTPS') s += '  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"\n  certificate_arn   = "' + (p.certArn || 'REPLACE_ME') + '"\n';
+      s += '\n  default_action {\n    type             = "forward"\n    target_group_arn = aws_lb_target_group.' + tfName(tg.props.name) + '.arn\n  }\n}\n\n';
+      if (p.redirect80 && p.listenProtocol === 'HTTPS') {
+        s += 'resource "aws_lb_listener" "' + r + '_redirect" {\n  load_balancer_arn = aws_lb.' + r + '.arn\n  port              = 80\n  protocol          = "HTTP"\n\n  default_action {\n    type = "redirect"\n\n    redirect {\n      port        = "' + p.listenPort + '"\n      protocol    = "HTTPS"\n      status_code = "HTTP_301"\n    }\n  }\n}\n\n';
+      }
+    }
+    s += 'output "' + r + '_dns_name" {\n  description = "Point your domain at this address"\n  value       = aws_lb.' + r + '.dns_name\n}\n\n';
+  });
+
+  ofType('ec2').forEach(n => {
+    const p = n.props, r = tfName(p.name), lt = byId(p.launchTemplate), sub = byId(p.subnet);
+    s += 'resource "aws_instance" "' + r + '" {\n';
+    if (lt) s += '  launch_template {\n    id      = aws_launch_template.' + tfName(lt.props.name) + '.id\n    version = "$Latest"\n  }\n';
+    else {
+      s += '  ami           = "' + p.ami + '"\n  instance_type = "' + (p.instanceType || 't3.micro') + '"\n';
+      const sgs = (p.securityGroups || []).map(id => tfRef(id)).filter(Boolean);
+      if (sgs.length) s += '  vpc_security_group_ids = [' + sgs.join(', ') + ']\n';
+    }
+    s += '  subnet_id                   = ' + (sub ? 'aws_subnet.' + tfName(sub.props.name) + '.id' : '""') + '\n';
+    s += '  associate_public_ip_address = ' + !!p.publicIp + '\n';
+    s += '  tags                        = { Name = "' + p.name + '" }\n}\n\n';
+  });
+
+  return s;
+}
+
+function genCli() {
+  const vpc0 = ofType('vpc')[0];
+  const region = vpc0 ? vpc0.props.region : 'us-east-1';
+  let s = '#!/usr/bin/env bash\n# Generated by AWS Solution Builder.\n';
+  s += '# Run these one at a time and paste each returned ID into the next command.\n';
+  s += '# Terraform does this bookkeeping for you; this script is here so you can see what actually happens.\n';
+  s += 'set -euo pipefail\nexport AWS_REGION=' + region + '\n\n';
+
+  ofType('vpc').forEach(n => {
+    const p = n.props;
+    s += '# ---- VPC: ' + p.name + ' ----\n';
+    s += 'VPC_ID=$(aws ec2 create-vpc --cidr-block ' + p.cidr + ' \\\n  --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=' + p.name + '}]" \\\n  --query Vpc.VpcId --output text)\necho "VPC_ID=$VPC_ID"\n';
+    if (p.dns) s += 'aws ec2 modify-vpc-attribute --vpc-id "$VPC_ID" --enable-dns-hostnames\n';
+    if (p.igw) s += 'IGW_ID=$(aws ec2 create-internet-gateway --query InternetGateway.InternetGatewayId --output text)\naws ec2 attach-internet-gateway --internet-gateway-id "$IGW_ID" --vpc-id "$VPC_ID"\n';
+    s += '\n';
+  });
+  ofType('subnet').forEach(n => {
+    const p = n.props, v = byId(p.vpc);
+    s += '# ---- Subnet: ' + p.name + ' ----\n';
+    s += 'aws ec2 create-subnet --vpc-id "$VPC_ID" --cidr-block ' + p.cidr + ' \\\n  --availability-zone ' + ((v ? v.props.region : region) + p.az) + ' \\\n  --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=' + p.name + '}]"\n\n';
+  });
+  ofType('sg').forEach(n => {
+    const p = n.props;
+    s += '# ---- Security group: ' + p.name + ' ----\n';
+    s += 'SG_' + tfName(p.name).toUpperCase() + '=$(aws ec2 create-security-group --group-name ' + p.name + ' \\\n  --description "' + (p.desc || p.name) + '" --vpc-id "$VPC_ID" --query GroupId --output text)\n';
+    (p.ingress || '').split('\n').map(x => x.trim()).filter(Boolean).forEach(rule => {
+      const b = rule.split(':'); if (b.length < 3) return;
+      const src = b.slice(2).join(':');
+      const isSg = ofType('sg').some(g => g.props.name === src);
+      s += 'aws ec2 authorize-security-group-ingress --group-id "$SG_' + tfName(p.name).toUpperCase() + '" \\\n  --protocol ' + b[0] + ' --port ' + b[1] + (isSg ? ' --source-group SOURCE_GROUP_ID' : ' --cidr ' + src) + '\n';
+    });
+    s += '\n';
+  });
+  ofType('lt').forEach(n => {
+    const p = n.props;
+    s += '# ---- Launch template: ' + p.name + ' ----\n';
+    s += '# user data has to be base64 encoded, so write it to a file first\n';
+    s += "cat > /tmp/" + tfName(p.name) + "-userdata.sh <<'USERDATA'\n" + (p.userData || '#!/bin/bash\n') + "\nUSERDATA\n";
+    s += 'aws ec2 create-launch-template --launch-template-name ' + p.name + ' \\\n  --launch-template-data "{\\"ImageId\\":\\"' + p.ami + '\\",\\"InstanceType\\":\\"' + p.instanceType + '\\",\\"UserData\\":\\"$(base64 -w0 /tmp/' + tfName(p.name) + '-userdata.sh)\\"}"\n\n';
+  });
+  ofType('tg').forEach(n => {
+    const p = n.props;
+    s += '# ---- Target group: ' + p.name + ' ----\n';
+    s += 'TG_ARN=$(aws elbv2 create-target-group --name ' + p.name + ' --protocol ' + p.protocol + ' --port ' + p.port + ' \\\n  --vpc-id "$VPC_ID" --target-type instance \\\n  --health-check-path ' + p.hcPath + ' --matcher HttpCode=' + (p.hcMatcher || '200') + ' \\\n  --query "TargetGroups[0].TargetGroupArn" --output text)\n\n';
+  });
+  ofType('alb').forEach(n => {
+    const p = n.props;
+    s += '# ---- Load balancer: ' + p.name + ' ----\n';
+    s += 'LB_ARN=$(aws elbv2 create-load-balancer --name ' + p.name + ' --type application \\\n  --scheme ' + p.scheme + ' --subnets SUBNET_ID_1 SUBNET_ID_2 --security-groups SG_ID \\\n  --query "LoadBalancers[0].LoadBalancerArn" --output text)\n';
+    s += 'aws elbv2 create-listener --load-balancer-arn "$LB_ARN" \\\n  --protocol ' + p.listenProtocol + ' --port ' + p.listenPort +
+         (p.listenProtocol === 'HTTPS' ? ' \\\n  --certificates CertificateArn=' + (p.certArn || 'REPLACE_ME') : '') +
+         ' \\\n  --default-actions Type=forward,TargetGroupArn="$TG_ARN"\n\n';
+  });
+  ofType('ec2').forEach(n => {
+    const p = n.props, lt = byId(p.launchTemplate);
+    s += '# ---- Instance: ' + p.name + ' ----\n';
+    s += 'aws ec2 run-instances ' + (lt ? '--launch-template LaunchTemplateName=' + lt.props.name + ',Version=\\$Latest' : '--image-id ' + p.ami + ' --instance-type ' + (p.instanceType || 't3.micro')) +
+      ' \\\n  --subnet-id SUBNET_ID --count 1 \\\n  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=' + p.name + '}]"\n\n';
+  });
+  s += '# Register the instances with the target group once they are running:\n';
+  s += '# aws elbv2 register-targets --target-group-arn "$TG_ARN" --targets Id=i-xxxx Id=i-yyyy\n';
+  return s;
+}
+
+/* ---------- 9. example templates ---------- */
+const UD = {
+  web:
+'#!/bin/bash\n' +
+'set -euxo pipefail\n' +
+'dnf -y update\n' +
+'dnf -y install httpd\n' +
+'systemctl enable --now httpd\n' +
+'TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")\n' +
+'HOST=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-hostname)\n' +
+'cat > /var/www/html/index.html <<HTML\n' +
+'<!doctype html><meta charset="utf-8"><title>Hello</title>\n' +
+'<body style="font-family:sans-serif;padding:3rem">\n' +
+'<h1>It works</h1><p>Served by $HOST</p>\n' +
+'</body>\n' +
+'HTML\n' +
+'# health check endpoint that never needs a login\n' +
+'echo ok > /var/www/html/health\n',
+
+  keycloak:
+'#!/bin/bash\n' +
+'set -euxo pipefail\n' +
+'dnf -y update\n' +
+'dnf -y install docker\n' +
+'systemctl enable --now docker\n' +
+'\n' +
+'# Pull the admin password from Secrets Manager instead of hard-coding it.\n' +
+'# The instance needs an IAM role that allows secretsmanager:GetSecretValue.\n' +
+'ADMIN_PASS=$(aws secretsmanager get-secret-value --secret-id keycloak/admin --query SecretString --output text --region REGION || echo "change-me-now")\n' +
+'\n' +
+'docker run -d --restart unless-stopped --name keycloak -p 8080:8080 \\\n' +
+'  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \\\n' +
+'  -e KC_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PASS" \\\n' +
+'  -e KC_PROXY_HEADERS=xforwarded \\\n' +
+'  -e KC_HTTP_ENABLED=true \\\n' +
+'  -e KC_HOSTNAME=https://login.example.com \\\n' +
+'  -e KC_HEALTH_ENABLED=true \\\n' +
+'  -e KC_DB=postgres \\\n' +
+'  -e KC_DB_URL=jdbc:postgresql://REPLACE-DB-HOST:5432/keycloak \\\n' +
+'  -e KC_DB_USERNAME=keycloak \\\n' +
+'  -e KC_DB_PASSWORD=REPLACE_ME \\\n' +
+'  quay.io/keycloak/keycloak:26.0 start --optimized\n' +
+'\n' +
+'# Health lives on the management port 9000 in Keycloak 25+, so expose it too\n' +
+'# if you point the target group at /health/ready.\n',
+
+  nifi:
+'#!/bin/bash\n' +
+'set -euxo pipefail\n' +
+'dnf -y update\n' +
+'dnf -y install docker\n' +
+'systemctl enable --now docker\n' +
+'\n' +
+'mkdir -p /opt/nifi/{conf,content,database,flowfile,provenance,state}\n' +
+'chown -R 1000:1000 /opt/nifi\n' +
+'\n' +
+'docker run -d --restart unless-stopped --name nifi -p 8080:8080 \\\n' +
+'  -e NIFI_WEB_HTTP_PORT=8080 \\\n' +
+'  -e NIFI_WEB_PROXY_HOST=nifi.example.com \\\n' +
+'  -e SINGLE_USER_CREDENTIALS_USERNAME=admin \\\n' +
+'  -e SINGLE_USER_CREDENTIALS_PASSWORD=REPLACE_WITH_12_PLUS_CHARS \\\n' +
+'  -v /opt/nifi/conf:/opt/nifi/nifi-current/conf \\\n' +
+'  -v /opt/nifi/content:/opt/nifi/nifi-current/content_repository \\\n' +
+'  -v /opt/nifi/database:/opt/nifi/nifi-current/database_repository \\\n' +
+'  -v /opt/nifi/flowfile:/opt/nifi/nifi-current/flowfile_repository \\\n' +
+'  -v /opt/nifi/provenance:/opt/nifi/nifi-current/provenance_repository \\\n' +
+'  -v /opt/nifi/state:/opt/nifi/nifi-current/state \\\n' +
+'  apache/nifi:latest\n' +
+'\n' +
+'# NiFi keeps a session per user, so turn on sticky sessions in the target group.\n'
+};
+
+function threeTier(opts) {
+  state.nodes = []; state.selected = null;
+  const vpc = addNode('vpc', 40, 40, {name: opts.prefix + '-vpc', cidr: '10.0.0.0/16', region: 'us-east-1', dns: true, igw: true});
+  const s1 = addNode('subnet', 40, 170, {name: opts.prefix + '-public-a', vpc: vpc.id, cidr: '10.0.1.0/24', az: 'a', public: true, autoip: true});
+  const s2 = addNode('subnet', 40, 280, {name: opts.prefix + '-public-b', vpc: vpc.id, cidr: '10.0.2.0/24', az: 'b', public: true, autoip: true});
+  const albSg = addNode('sg', 300, 40, {name: opts.prefix + '-alb-sg', vpc: vpc.id, desc: 'Public entry point', ingress: 'tcp:443:0.0.0.0/0\ntcp:80:0.0.0.0/0', egressAll: true});
+  const appSg = addNode('sg', 300, 170, {name: opts.prefix + '-app-sg', vpc: vpc.id, desc: 'App tier', ingress: 'tcp:' + opts.port + ':' + opts.prefix + '-alb-sg', egressAll: true});
+  const tg = addNode('tg', 560, 170, {name: opts.prefix + '-tg', vpc: vpc.id, port: opts.port, protocol: 'HTTP', hcPath: opts.health, hcMatcher: opts.matcher || '200', stickiness: !!opts.sticky, deregDelay: 30});
+  const alb = addNode('alb', 560, 40, {name: opts.prefix + '-alb', scheme: 'internet-facing', subnets: [s1.id, s2.id], securityGroups: [albSg.id], listenPort: 443, listenProtocol: 'HTTPS', certArn: '', targetGroup: tg.id, redirect80: true});
+  const lt = addNode('lt', 300, 300, {name: opts.prefix + '-lt', ami: 'ami-0c02fb55956c7d316', instanceType: opts.size, securityGroups: [appSg.id], subnet: s1.id, volumeSize: opts.disk || 20, imdsv2: true, userData: opts.userData, iamProfile: opts.iam || ''});
+  const e1 = addNode('ec2', 820, 100, {name: opts.prefix + '-1', launchTemplate: lt.id, subnet: s1.id});
+  const e2 = addNode('ec2', 820, 230, {name: opts.prefix + '-2', launchTemplate: lt.id, subnet: s2.id});
+  tg.props.targets = [e1.id, e2.id];
+  state.title = opts.title;
+  renderAll(); fit();
+  toast('Loaded: ' + opts.title);
+}
+
+const TEMPLATES = {
+  website: {
+    title: 'Static website on two web servers',
+    blurb: 'Two small Apache servers behind a load balancer, each serving the same page. The cheapest way to see the whole pattern work end to end.',
+    run: () => threeTier({prefix:'web', port:80, health:'/health', size:'t3.micro', disk:10, userData:UD.web, title:'Static website on two web servers'})
+  },
+  keycloak: {
+    title: 'Keycloak identity server',
+    blurb: 'Keycloak in Docker on two instances, HTTPS ended at the load balancer, health checked on /health/ready. You still need a database — Keycloak will not keep users on the local disk in production.',
+    run: () => threeTier({prefix:'keycloak', port:8080, health:'/health/ready', size:'t3.medium', disk:20, sticky:true, iam:'keycloak-secrets-profile', userData:UD.keycloak, title:'Keycloak identity server'})
+  },
+  nifi: {
+    title: 'Apache NiFi data flow',
+    blurb: 'NiFi in Docker with its repositories on disk, sticky sessions on, and a bigger instance size because NiFi is hungry. Single-user login is fine for a lab, not for production.',
+    run: () => threeTier({prefix:'nifi', port:8080, health:'/nifi', matcher:'200,302', size:'t3.large', disk:60, sticky:true, userData:UD.nifi, title:'Apache NiFi data flow'})
+  }
+};
+
+/* ---------- 10. modals ---------- */
+const GUIDE = [
+  ['Start with the shape, not the settings',
+   'Before you touch a single field, put the boxes on the canvas in the order they depend on each other: VPC, then subnets, then security groups, then a target group, then the load balancer, then a launch template, then instances. Each one needs the one before it, so building in this order means you never have to pick something from a dropdown that does not exist yet. If you would rather see a finished example first, open Examples and load the static website — then come back here and read along while you click through it.'],
+  ['Build the network: VPC and subnets',
+   'The VPC is your private network. Give it a CIDR block of 10.0.0.0/16, which is a fancy way of saying "addresses from 10.0.0.0 to 10.0.255.255 belong to me". Then carve out at least two subnets, 10.0.1.0/24 and 10.0.2.0/24, and put them in different Availability Zones (a and b). A zone is a physical data centre. Using two means a problem in one building does not take your site offline — and the load balancer flatly refuses to start with fewer than two.'],
+  ['Decide who is allowed to talk: security groups',
+   'Make two security groups, not one. The first is for the load balancer and allows ports 80 and 443 from 0.0.0.0/0, which means the whole internet. The second is for your application and allows only your app port, and only from the first group. Type it as tcp:8080:web-alb-sg — naming another group as the source is the trick that keeps your servers unreachable except through the front door. Never open port 22 to 0.0.0.0/0; the checks panel will nag you if you do.'],
+  ['Say where traffic should land: target group',
+   'The target group is the list of servers plus a health check. Set the port to whatever your software actually listens on inside the machine — 80 for Apache, 8080 for Keycloak or NiFi. This is almost never the same as the port visitors type. Then set a health check path that returns 200 without a login. If your health check needs a password, every server will be marked unhealthy and the load balancer will return 503 to everyone, which is a genuinely confusing afternoon.'],
+  ['Put up the front door: load balancer',
+   'Tick both subnets and the load balancer security group, then set the listener to HTTPS on 443 and paste a certificate ARN from AWS Certificate Manager. Certificates there are free. Leave "redirect port 80" on so that visitors who type http:// get bounced to the secure version. The load balancer forwards to the target group you just made; it never knows the servers directly.'],
+  ['Write the recipe: launch template',
+   'The launch template holds the AMI (the operating system image), the size, the disk, the firewall, and the startup script. AMI IDs are different in every region, so copy the one for yours out of the console. In User data, write a shell script starting with #!/bin/bash. It runs once, as root, the first time the machine boots. Keep it short: install the thing, start the thing, make the health check answer. Anything long or fragile belongs in a pre-baked image instead.'],
+  ['Create the servers: EC2 instances',
+   'Add two instances, point both at the launch template, and put one in each subnet so they land in different zones. Then go back to the target group and tick both of them. Instances are meant to be disposable — if you find yourself logging in to fix one by hand, that fix belongs in the launch template so the next machine gets it too.'],
+  ['Read the checks panel until it is green',
+   'Every box on the canvas wears a badge: a green tick, an amber question mark, or a red exclamation. The panel under the canvas spells out each one in plain words and tells you how to fix it. Red means AWS will reject this or it simply will not work — a load balancer in one zone, a health check that cannot be reached, an instance with nothing to boot. Amber is worth reading twice but will not stop you. Click any line to jump to the box it is about.'],
+  ['Follow the traffic',
+   'Press "Show flow" to fade everything except the path a request actually takes: visitor to load balancer, load balancer to target group, target group to instance. If that chain has a gap, that is your bug. Most broken deployments are a missing link in this exact line — usually a security group that does not allow the app port from the load balancer group.'],
+  ['Generate the code and read it before you run it',
+   'Generate code gives you Terraform and the equivalent AWS CLI commands. Terraform is the one to use: it remembers what it built, so it can update or destroy things later. Save the file as main.tf, then run terraform init, terraform plan, and read the plan carefully. Plan changes nothing; it only tells you what would happen. Only then run terraform apply. When you are finished experimenting, terraform destroy removes everything so it stops costing money. The CLI script is there so you can see the same steps happening one at a time, but you would have to track every ID by hand.'],
+  ['Keep your work',
+   'Save writes the design into this browser, so it is still here tomorrow on this device. Export writes a JSON file you can email, put in Git, or import on another machine. Print gives you the diagram and a written summary of every setting, which is what to bring to a review meeting. Nothing is ever sent anywhere — this page has no server.']
+];
+
+const modalRoot = $('#modalRoot');
+function openModal(kind, arg) {
+  let title = '', body = '';
+  if (kind === 'guide') {
+    title = 'Step by step, from empty canvas to running code';
+    body = '<p class="mb-4 text-gray60 dark:text-gray30">Read it straight through the first time. About ten minutes.</p>' +
+      '<ol class="space-y-4">' + GUIDE.map((g, i) =>
+        '<li><p class="font-semibold text-blue70 dark:text-blue20">' + (i + 1) + '. ' + esc(g[0]) + '</p>' +
+        '<p class="mt-1 max-w-[68ch]">' + esc(g[1]) + '</p></li>').join('') + '</ol>' +
+      '<div class="mt-6 pt-4 border-t border-gray20 dark:border-gray80">' +
+      '<p class="font-semibold mb-2">Where to read more</p><ul class="space-y-1">' +
+      [['AWS Well-Architected Framework','https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html'],
+       ['AWS architecture reference diagrams','https://aws.amazon.com/architecture/'],
+       ['Terraform AWS provider','https://registry.terraform.io/providers/hashicorp/aws/latest/docs'],
+       ['Terraform tutorial: build infrastructure','https://developer.hashicorp.com/terraform/tutorials/aws-get-started/aws-build'],
+       ['AWS CLI command reference','https://docs.aws.amazon.com/cli/latest/reference/'],
+       ['AWS pricing calculator','https://calculator.aws/']].map(d =>
+        '<li><a class="text-blue70 dark:text-blue20 underline" target="_blank" rel="noopener" href="' + d[1] + '">' + d[0] + '</a></li>').join('') +
+      '</ul></div>';
+  }
+  else if (kind === 'service') {
+    const T = TYPES[arg];
+    title = T.name;
+    body = '<div class="flex items-start gap-3 mb-4"><svg viewBox="0 0 24 24" width="40" height="40" style="color:' + T.color + '">' + ICONS[arg] + '</svg>' +
+      '<p class="text-lg font-semibold">' + esc(T.plain) + '</p></div>' +
+      '<p class="max-w-[68ch] mb-4">' + esc(T.what) + '</p>' +
+      '<p class="font-semibold mb-1">What you have to configure</p>' +
+      '<ul class="list-disc ml-5 space-y-1 max-w-[68ch] mb-4">' + T.needs.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' +
+      '<p class="font-semibold mb-1">Official documentation</p>' +
+      '<ul class="space-y-1">' + T.docs.map(d => '<li><a class="text-blue70 dark:text-blue20 underline" target="_blank" rel="noopener" href="' + d[1] + '">' + esc(d[0]) + '</a></li>').join('') + '</ul>' +
+      '<div class="mt-5"><button class="px-3 py-2 bg-blue60 text-white" data-add="' + arg + '">Add a ' + esc(T.name.toLowerCase()) + ' to the canvas</button></div>';
+  }
+  else if (kind === 'templates') {
+    title = 'Examples you can load and change';
+    body = '<p class="mb-4 max-w-[68ch] text-gray60 dark:text-gray30">Each one replaces what is on the canvas with a complete, connected design. Load one, click the boxes, and read the properties to see how the pieces fit. You will still need to paste your own certificate ARN and a current AMI ID for your region.</p>' +
+      '<div class="space-y-3">' + Object.keys(TEMPLATES).map(k =>
+        '<div class="border border-gray20 dark:border-gray80 p-3">' +
+        '<p class="font-semibold">' + esc(TEMPLATES[k].title) + '</p>' +
+        '<p class="text-sm mt-1 mb-2 max-w-[68ch]">' + esc(TEMPLATES[k].blurb) + '</p>' +
+        '<button class="px-3 py-1 bg-blue60 text-white text-sm" data-tpl="' + k + '">Load this example</button></div>').join('') + '</div>';
+  }
+  else if (kind === 'code') {
+    const problems = validate().filter(p => p.level === 'error');
+    title = 'Generated code';
+    body = (problems.length ? '<div class="border-l-4 border-red60 bg-red60/10 p-3 mb-4"><p class="font-semibold text-red60">' + problems.length + ' blocking problem(s) still open</p><p class="text-sm">The code below is generated anyway so you can see the shape, but it will not apply cleanly until the checks panel is clear.</p></div>' : '') +
+      '<div class="flex gap-1 mb-3" id="codeTabs">' +
+      '<button class="px-3 py-1 border border-gray30 dark:border-gray80" data-tab="tf">Terraform</button>' +
+      '<button class="px-3 py-1 border border-gray30 dark:border-gray80" data-tab="cli">AWS CLI</button>' +
+      '<button class="px-3 py-1 border border-gray30 dark:border-gray80 ml-auto" data-copy="1">Copy</button>' +
+      '<button class="px-3 py-1 border border-gray30 dark:border-gray80" data-dl="1">Download</button>' +
+      '</div>' +
+      '<pre id="codeOut" class="font-mono text-sm bg-gray10 dark:bg-gray90 p-3 overflow-auto scroll max-h-[52vh] whitespace-pre"></pre>' +
+      '<p class="text-sm text-gray60 dark:text-gray30 mt-3 max-w-[68ch]">Save the Terraform as <span class="font-mono">main.tf</span>, then run <span class="font-mono">terraform init</span>, <span class="font-mono">terraform plan</span> and read the plan before <span class="font-mono">terraform apply</span>. Run <span class="font-mono">terraform destroy</span> when you are done experimenting so it stops costing money.</p>';
+  }
+  else if (kind === 'io') {
+    title = 'Export and import';
+    body = '<p class="mb-3 max-w-[68ch]">Designs are saved as JSON using a small schema of our own. It is plain text, so it diffs nicely in Git and you can hand-edit it if you like.</p>' +
+      '<div class="flex flex-wrap gap-2 mb-4">' +
+      '<button class="px-3 py-2 bg-blue60 text-white" data-io="export">Download design as JSON</button>' +
+      '<button class="px-3 py-2 border border-gray30 dark:border-gray80" data-io="copy">Copy JSON</button>' +
+      '<label class="px-3 py-2 border border-gray30 dark:border-gray80 cursor-pointer">Import a file<input type="file" accept="application/json,.json" class="hidden" id="fileIn"></label>' +
+      '</div>' +
+      '<p class="font-semibold mb-1">Or paste JSON here</p>' +
+      '<textarea id="pasteIn" rows="8" class="field font-mono text-sm" placeholder="Paste an exported design and press Load"></textarea>' +
+      '<button class="mt-2 px-3 py-2 border border-gray30 dark:border-gray80" data-io="paste">Load pasted design</button>' +
+      '<div class="mt-5 pt-4 border-t border-gray20 dark:border-gray80">' +
+      '<p class="font-semibold mb-2">The schema</p>' +
+      '<pre class="font-mono text-sm bg-gray10 dark:bg-gray90 p-3 overflow-auto scroll">' + esc(
+'{\n  "schema": "aws-solution-builder",   // must match exactly\n  "version": 1,\n  "title":  "My design",\n  "savedAt": "ISO timestamp",\n  "view":   { "x": 40, "y": 40, "k": 1 },   // pan and zoom\n  "nodes": [\n    {\n      "id":   "n4k2af",                // unique, referenced by links\n      "type": "subnet",                // vpc|subnet|sg|tg|alb|lt|ec2\n      "x": 40, "y": 170,               // canvas position\n      "props": {                       // keys depend on the type\n        "name": "public-a",\n        "vpc":  "n1a9zz",              // a link: another node id\n        "cidr": "10.0.1.0/24",\n        "az":   "a",\n        "public": true\n      }\n    }\n  ]\n}') + '</pre>' +
+      '<p class="text-sm text-gray60 dark:text-gray30 mt-2 max-w-[68ch]">Links are just node ids stored in props. A single link is a string; a multi-link, like the subnets on a load balancer, is an array of ids. On import, any id that points at a node which is not in the file is dropped rather than left dangling.</p></div>';
+  }
+
+  $('#modalTitle').textContent = title;
+  $('#modalBody').innerHTML = body;
+  modalRoot.classList.remove('hidden');
+  if (kind === 'code') { showCode('tf'); }
+  $('#modalBody').scrollTop = 0;
+}
+function closeModal() { modalRoot.classList.add('hidden'); }
+
+let codeKind = 'tf';
+function showCode(k) {
+  codeKind = k;
+  const out = $('#codeOut'); if (!out) return;
+  out.textContent = k === 'tf' ? genTerraform() : genCli();
+  $$('#codeTabs [data-tab]').forEach(b => {
+    const on = b.dataset.tab === k;
+    b.className = 'px-3 py-1 border ' + (on ? 'bg-blue60 text-white border-blue60' : 'border-gray30 dark:border-gray80');
+  });
+}
+
+$('#modalBody').addEventListener('click', e => {
+  const t = e.target.closest('button, label'); if (!t) return;
+  if (t.dataset.tab) showCode(t.dataset.tab);
+  if (t.dataset.copy) { copyText($('#codeOut').textContent); }
+  if (t.dataset.dl) { download(codeKind === 'tf' ? 'main.tf' : 'deploy.sh', $('#codeOut').textContent); }
+  if (t.dataset.tpl) { TEMPLATES[t.dataset.tpl].run(); closeModal(); }
+  if (t.dataset.add) { const n = addNode(t.dataset.add, 60 - state.view.x / state.view.k + 220, 60 - state.view.y / state.view.k + 120); select(n.id); renderAll(); closeModal(); }
+  if (t.dataset.io === 'export') download((tfName(state.title) || 'design') + '.json', JSON.stringify(doc(), null, 2));
+  if (t.dataset.io === 'copy') copyText(JSON.stringify(doc(), null, 2));
+  if (t.dataset.io === 'paste') {
+    try { loadDoc(JSON.parse($('#pasteIn').value)); closeModal(); }
+    catch (err) { toast('Could not read that JSON: ' + err.message, true); }
+  }
+});
+document.addEventListener('change', e => {
+  if (e.target.id === 'fileIn') {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { try { loadDoc(JSON.parse(r.result)); closeModal(); } catch (err) { toast('Could not read that file: ' + err.message, true); } };
+    r.readAsText(f);
+  }
+});
+
+function copyText(t) {
+  navigator.clipboard.writeText(t).then(() => toast('Copied to clipboard'), () => toast('Copy failed — select the text and copy manually', true));
+}
+function download(name, text) {
+  const b = new Blob([text], {type: 'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast('Downloaded ' + name);
+}
+
+/* ---------- palette ---------- */
+function renderPalette() {
+  $('#paletteList').innerHTML = TYPE_KEYS.map(k => {
+    const T = TYPES[k];
+    return '<div class="border border-gray20 dark:border-gray80 p-2 flex items-start gap-2" draggable="true" data-type="' + k + '">' +
+      '<svg viewBox="0 0 24 24" width="26" height="26" class="shrink-0 mt-0.5" style="color:' + T.color + '">' + ICONS[k] + '</svg>' +
+      '<div class="min-w-0 flex-1">' +
+        '<button class="font-medium text-left w-full" data-add="' + k + '">' + esc(T.name) + '</button>' +
+        '<p class="text-sm text-gray60 dark:text-gray30">' + esc(T.plain) + '</p>' +
+        '<button class="text-sm underline text-blue70 dark:text-blue20 mt-1" data-info="' + k + '">What is this?</button>' +
+      '</div></div>';
+  }).join('');
+}
+$('#paletteList').addEventListener('click', e => {
+  const info = e.target.closest('[data-info]');
+  if (info) { openModal('service', info.dataset.info); return; }
+  const add = e.target.closest('[data-add]');
+  if (add) {
+    const r = svg.getBoundingClientRect();
+    const cx = (r.width / 2 - state.view.x) / state.view.k - NW / 2 + (Math.random() * 60 - 30);
+    const cy = (r.height / 2 - state.view.y) / state.view.k - NH / 2 + (Math.random() * 60 - 30);
+    const n = addNode(add.dataset.add, cx, cy);
+    select(n.id); renderAll(); closeDrawers();
+    if (window.innerWidth < 1024) openDrawer('props');
+    toast('Added ' + TYPES[n.type].name + '. Fill in its properties.');
+  }
+});
+$('#paletteList').addEventListener('dragstart', e => {
+  const card = e.target.closest('[data-type]'); if (!card) return;
+  e.dataTransfer.setData('text/plain', card.dataset.type);
+});
+$('#canvasWrap').addEventListener('dragover', e => e.preventDefault());
+$('#canvasWrap').addEventListener('drop', e => {
+  e.preventDefault();
+  const type = e.dataTransfer.getData('text/plain');
+  if (!TYPES[type]) return;
+  const p = svgPoint(e);
+  const n = addNode(type, p.x - NW / 2, p.y - NH / 2);
+  select(n.id); renderAll();
+});
+
+/* ---------- drawers (mobile) ---------- */
+function openDrawer(which) {
+  const el = which === 'props' ? $('#propsPane') : $('#palette');
+  el.classList.remove('hidden'); el.classList.add('flex');
+}
+function closeDrawers() {
+  if (window.innerWidth >= 1024) return;
+  [$('#palette'), $('#propsPane')].forEach(el => { el.classList.add('hidden'); el.classList.remove('flex'); });
+}
+$('#btnPalette').onclick = () => openDrawer('palette');
+$('#btnProps').onclick = () => openDrawer('props');
+$('#closePalette').onclick = closeDrawers;
+$('#closeProps').onclick = closeDrawers;
+
+/* ---------- preferences: theme + font size ---------- */
+function setTheme(dark) {
+  document.documentElement.classList.toggle('dark', dark);
+  $('#btnTheme').textContent = dark ? 'Light mode' : 'Dark mode';
+  document.documentElement.style.setProperty('--nodebg', dark ? '#161616' : '#ffffff');
+  document.documentElement.style.setProperty('--nodefg', dark ? '#f4f4f4' : '#161616');
+  document.documentElement.style.setProperty('--nodemuted', dark ? '#a8a8a8' : '#6f6f6f');
+  document.documentElement.style.setProperty('--nodeline', dark ? '#525252' : '#c6c6c6');
+  savePrefs();
+}
+function setFont(px) {
+  px = clamp(+px, 14, 36);
+  document.documentElement.style.setProperty('--fs', px + 'px');
+  $('#fsRange').value = px; $('#fsOut').value = px;
+  svg.style.fontSize = px + 'px';
+  savePrefs();
+}
+function savePrefs() {
+  try { localStorage.setItem(LS_PREF, JSON.stringify({dark: document.documentElement.classList.contains('dark'), fs: parseInt($('#fsRange').value, 10)})); } catch (e) {}
+}
+$('#btnTheme').onclick = () => setTheme(!document.documentElement.classList.contains('dark'));
+$('#fsRange').oninput = e => setFont(e.target.value);
+$('#fsUp').onclick = () => setFont(+$('#fsRange').value + 2);
+$('#fsDown').onclick = () => setFont(+$('#fsRange').value - 2);
+
+/* ---------- toolbar wiring ---------- */
+$$('[data-modal]').forEach(b => b.onclick = () => openModal(b.dataset.modal));
+$('#modalClose').onclick = closeModal;
+$('#modalScrim').onclick = closeModal;
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); if (linkFrom) { linkFrom = null; setHint(''); } }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.selected && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
+    e.preventDefault(); deleteNode(state.selected);
+  }
+  if (e.key === 's' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+});
+$('#btnSave').onclick = save;
+$('#btnZoomIn').onclick = () => zoom(1.2);
+$('#btnZoomOut').onclick = () => zoom(1/1.2);
+$('#btnZoomFit').onclick = fit;
+$('#btnFlow').onclick = () => {
+  flowMode = !flowMode;
+  $('#btnFlow').textContent = flowMode ? 'Show everything' : 'Show flow';
+  $('#btnFlow').className = 'px-2 py-1 text-sm border ' + (flowMode ? 'bg-blue60 text-white border-blue60' : 'border-gray30 dark:border-gray80');
+  renderAll();
+  if (flowMode) toast('Showing only the path a request takes: load balancer → target group → instances');
+};
+$('#btnClear').onclick = () => {
+  if (!state.nodes.length) return;
+  if (confirm('Remove everything from the canvas? Export first if you want to keep it.')) {
+    state.nodes = []; state.selected = null; state.title = 'Untitled design'; renderAll();
+  }
+};
+$('#btnPrint').onclick = () => {
+  const problems = validate();
+  $('#printOnly').innerHTML =
+    '<h1 style="font-size:20px;font-weight:700;margin-bottom:2px">' + esc(state.title) + '</h1>' +
+    '<p style="margin-bottom:12px">Printed ' + new Date().toLocaleString() + ' · ' + state.nodes.length + ' resources</p>' +
+    state.nodes.slice().sort((a,b) => TYPES[a.type].order - TYPES[b.type].order).map(n => {
+      const T = TYPES[n.type];
+      return '<div style="border-top:1px solid #ccc;padding:6px 0"><b>' + esc(T.name) + ': ' + esc(n.props.name) + '</b><br>' +
+        T.fields.filter(f => f.k !== 'name').map(f => {
+          let v = n.props[f.k];
+          if (f.t === 'ref') { const r = byId(v); v = r ? r.props.name : '—'; }
+          if (f.t === 'refs') v = (v || []).map(id => { const r = byId(id); return r ? r.props.name : '?'; }).join(', ') || '—';
+          if (f.t === 'bool') v = v ? 'yes' : 'no';
+          if (f.t === 'area') v = String(v || '').split('\n').length + ' line(s)';
+          return '<span style="display:inline-block;min-width:220px">' + esc(f.l) + ': ' + esc(v === '' ? '—' : v) + '</span>';
+        }).join(' ') + '</div>';
+    }).join('') +
+    (problems.length ? '<h2 style="margin-top:14px;font-weight:700">Open items</h2><ul style="margin-left:18px">' +
+      problems.map(p => '<li>' + (p.level === 'error' ? '[fix] ' : '[check] ') + esc(p.msg) + '</li>').join('') + '</ul>' : '');
+  $('#printOnly').style.display = 'block';
+  fit();
+  setTimeout(() => { window.print(); $('#printOnly').style.display = 'none'; }, 120);
+};
+
+/* ---------- boot ---------- */
+renderPalette();
+try {
+  const pref = JSON.parse(localStorage.getItem(LS_PREF) || '{}');
+  setTheme(!!pref.dark);
+  setFont(pref.fs || 16);
+} catch (e) { setTheme(false); setFont(16); }
+
+try {
+  const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+  if (saved) loadDoc(saved, true); else renderAll();
+} catch (e) { renderAll(); }
+
+if (!state.nodes.length) setHint('Tap a service in the palette, or load an example to see a finished design.');
+window.addEventListener('resize', () => { if (window.innerWidth >= 1024) { $('#palette').classList.remove('hidden'); $('#propsPane').classList.remove('hidden'); } });
+</script>
+</body>
+</html>
