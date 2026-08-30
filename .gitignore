@@ -1,1 +1,5 @@
 .DS_Store
+rds/.terraform.lock.hcl
+.gitignore
+rds/terraform.tfstate
+rds/.terraform/

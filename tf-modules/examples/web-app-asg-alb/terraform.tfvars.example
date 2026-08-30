@@ -1,0 +1,23 @@
+# Copy to terraform.tfvars and edit. Terraform loads that filename automatically.
+
+aws_region    = "us-east-1"
+project_name  = "web-demo"
+environment   = "dev"
+
+instance_type = "t4g.nano"   # or "t3.micro" for free tier
+app_port      = 8080
+response_text = "It works!"
+
+# Restrict to your own IP for a private test:
+#   curl -s https://checkip.amazonaws.com
+# allowed_cidr = "203.0.113.45/32"
+allowed_cidr = "0.0.0.0/0"
+
+min_size         = 2
+max_size         = 4
+desired_capacity = 2
+
+# Only enable if you already own a domain with a Route 53 public hosted zone.
+enable_dns = false
+# hosted_zone_name = "example.com"
+# subdomain        = "app"
