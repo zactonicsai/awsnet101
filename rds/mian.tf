@@ -315,7 +315,7 @@ resource "aws_db_instance" "zpostgres" {
   # Production systems should use Secrets Manager.
   # ----------------------------------------------------------
 
-  password = "Changeme123!"
+  password = "changeme"
 
 
   # ----------------------------------------------------------

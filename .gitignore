@@ -3,3 +3,8 @@ rds/.terraform.lock.hcl
 .gitignore
 rds/terraform.tfstate
 rds/.terraform/
+rds/.terraform.tfstate.lock.info
+rds/terraform.tfstate.backup
+rds/terraform.tfstate.backup
+rds/terraform.tfstate.backup
+rds/terraform.tfstate.backup

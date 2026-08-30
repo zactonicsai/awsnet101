@@ -1,0 +1,17 @@
+aws_region   = "us-east-1"
+name_prefix  = "s3-copy"
+
+# Leave empty to generate unique bucket names. Set both when reusing existing buckets
+# and set create_buckets = false.
+create_buckets     = true
+source_bucket_name = ""
+dest_bucket_name   = ""
+
+default_new_prefix = "copied/"
+lambda_timeout     = 60
+lambda_memory_mb   = 256
+
+tags = {
+  Project   = "s3-copy-lambda"
+  ManagedBy = "terraform"
+}
