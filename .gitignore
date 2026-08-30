@@ -17,3 +17,5 @@ rds2/.terraform/providers/registry.terraform.io/hashicorp/aws/6.62.0/darwin_arm6
 rds2/.terraform.tfstate.lock.info
 .terraform/
 *.hcl
+awsgenerator/basic/terraform.tfstate
+.gitignore
