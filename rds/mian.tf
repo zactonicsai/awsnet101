@@ -1,3 +1,19 @@
+# ============================================================
+# SIMPLE PUBLIC AWS RDS POSTGRESQL DATABASE
+#
+# Database: appdb
+# Username: admin
+# Password: Changeme123!
+# Port:     5432
+#
+# DEV / TEST EXAMPLE
+# ============================================================
+
+
+# ============================================================
+# TERRAFORM
+# ============================================================
+
 terraform {
   required_version = ">= 1.6.0"
 
@@ -9,6 +25,7 @@ terraform {
   }
 }
 
+
 # ============================================================
 # AWS PROVIDER
 # ============================================================
@@ -17,143 +34,192 @@ provider "aws" {
   region = "us-east-1"
 }
 
+
+# ============================================================
+# FIND AVAILABLE AVAILABILITY ZONES
+#
+# This is better than manually assuming us-east-1a and
+# us-east-1b.
+# ============================================================
+
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+
 # ============================================================
 # VPC
 # ============================================================
 
-resource "aws_vpc" "postgres_vpc" {
-  cidr_block           = "10.20.0.0/16"
+resource "aws_vpc" "zpostgres" {
+  cidr_block = "10.20.0.0/16"
+
   enable_dns_support   = true
   enable_dns_hostnames = true
 
   tags = {
-    Name = "postgres-dev-vpc"
+    Name = "zpostgres-vpc"
   }
 }
+
 
 # ============================================================
 # INTERNET GATEWAY
 # ============================================================
 
-resource "aws_internet_gateway" "postgres_igw" {
-  vpc_id = aws_vpc.postgres_vpc.id
+resource "aws_internet_gateway" "zpostgres" {
+  vpc_id = aws_vpc.zpostgres.id
 
   tags = {
-    Name = "postgres-dev-igw"
+    Name = "zpostgres-igw"
   }
 }
+
 
 # ============================================================
 # PUBLIC SUBNET 1
 # ============================================================
 
 resource "aws_subnet" "public_1" {
-  vpc_id                  = aws_vpc.postgres_vpc.id
-  cidr_block              = "10.20.1.0/24"
-  availability_zone       = "us-east-1a"
+  vpc_id = aws_vpc.zpostgres.id
+
+  cidr_block = "10.20.1.0/24"
+
+  availability_zone = data.aws_availability_zones.available.names[0]
+
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "postgres-public-1"
+    Name = "zpostgres-public-1"
   }
 }
+
 
 # ============================================================
 # PUBLIC SUBNET 2
 #
-# RDS needs subnets in multiple Availability Zones.
+# RDS subnet groups should span multiple Availability Zones.
 # ============================================================
 
 resource "aws_subnet" "public_2" {
-  vpc_id                  = aws_vpc.postgres_vpc.id
-  cidr_block              = "10.20.2.0/24"
-  availability_zone       = "us-east-1b"
+  vpc_id = aws_vpc.zpostgres.id
+
+  cidr_block = "10.20.2.0/24"
+
+  availability_zone = data.aws_availability_zones.available.names[1]
+
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "postgres-public-2"
+    Name = "zpostgres-public-2"
   }
 }
+
 
 # ============================================================
 # PUBLIC ROUTE TABLE
 # ============================================================
 
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.postgres_vpc.id
+  vpc_id = aws_vpc.zpostgres.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.postgres_igw.id
+
+    gateway_id = aws_internet_gateway.zpostgres.id
   }
 
   tags = {
-    Name = "postgres-public-route-table"
+    Name = "zpostgres-public-route"
   }
 }
 
+
 # ============================================================
-# CONNECT SUBNET 1 TO ROUTE TABLE
+# ATTACH SUBNET 1 TO PUBLIC ROUTE TABLE
 # ============================================================
 
 resource "aws_route_table_association" "public_1" {
-  subnet_id      = aws_subnet.public_1.id
+  subnet_id = aws_subnet.public_1.id
+
   route_table_id = aws_route_table.public.id
 }
 
+
 # ============================================================
-# CONNECT SUBNET 2 TO ROUTE TABLE
+# ATTACH SUBNET 2 TO PUBLIC ROUTE TABLE
 # ============================================================
 
 resource "aws_route_table_association" "public_2" {
-  subnet_id      = aws_subnet.public_2.id
+  subnet_id = aws_subnet.public_2.id
+
   route_table_id = aws_route_table.public.id
 }
 
+
 # ============================================================
-# SECURITY GROUP
-#
-# WARNING:
-# 0.0.0.0/0 allows anyone on the Internet to try port 5432.
-#
-# For better security change this to your IP:
-#
-# cidr_blocks = ["1.2.3.4/32"]
+# POSTGRESQL SECURITY GROUP
 # ============================================================
 
-resource "aws_security_group" "postgres_sg" {
-  name        = "postgres-public-sg"
+resource "aws_security_group" "zpostgres" {
+  name = "zpostgres-public-sg"
+
   description = "Allow PostgreSQL connections"
-  vpc_id      = aws_vpc.postgres_vpc.id
+
+  vpc_id = aws_vpc.zpostgres.id
+
+
+  # ----------------------------------------------------------
+  # POSTGRESQL
+  #
+  # WARNING:
+  #
+  # 0.0.0.0/0 means the whole Internet can ATTEMPT to connect.
+  #
+  # Better:
+  #
+  # cidr_blocks = ["YOUR.PUBLIC.IP/32"]
+  #
+  # ----------------------------------------------------------
 
   ingress {
-    description = "PostgreSQL"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
+    description = "PostgreSQL TCP 5432"
 
-    # DEVELOPMENT ONLY
+    from_port = 5432
+    to_port   = 5432
+
+    protocol = "tcp"
+
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+
+  # ----------------------------------------------------------
+  # OUTBOUND
+  # ----------------------------------------------------------
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    from_port = 0
+    to_port   = 0
+
+    protocol = "-1"
+
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+
   tags = {
-    Name = "postgres-public-sg"
+    Name = "zpostgres-public-sg"
   }
 }
+
 
 # ============================================================
 # RDS SUBNET GROUP
 # ============================================================
 
-resource "aws_db_subnet_group" "postgres" {
-  name = "postgres-dev-subnets"
+resource "aws_db_subnet_group" "zpostgres" {
+  name = "zpostgres-subnet-group"
 
   subnet_ids = [
     aws_subnet.public_1.id,
@@ -161,80 +227,168 @@ resource "aws_db_subnet_group" "postgres" {
   ]
 
   tags = {
-    Name = "postgres-dev-subnets"
+    Name = "zpostgres-subnet-group"
   }
 }
 
+
 # ============================================================
-# POSTGRESQL RDS DATABASE
+# RDS POSTGRESQL
 # ============================================================
 
-resource "aws_db_instance" "postgres" {
+resource "aws_db_instance" "zpostgres" {
+
+  # ----------------------------------------------------------
+  # AWS RDS INSTANCE NAME
+  #
+  # Safe name:
+  # - starts with a letter
+  # - no underscores
+  # - no reserved RDS name
+  # ----------------------------------------------------------
 
   identifier = "postgres-dev"
 
-  # PostgreSQL
+
+  # ----------------------------------------------------------
+  # DATABASE ENGINE
+  # ----------------------------------------------------------
+
   engine = "postgres"
 
-  # Small / low-cost database
+
+  # ----------------------------------------------------------
+  # SMALL / LOW-COST INSTANCE
+  # ----------------------------------------------------------
+
   instance_class = "db.t3.micro"
 
-  # 20 GB storage
+
+  # ----------------------------------------------------------
+  # STORAGE
+  # ----------------------------------------------------------
+
   allocated_storage = 20
 
-  # General Purpose SSD
   storage_type = "gp3"
 
-  # Encrypt database storage
   storage_encrypted = true
 
-  # Database name
+
+  # ----------------------------------------------------------
+  # INITIAL DATABASE NAME
+  #
+  # appdb is a safe simple database name.
+  # ----------------------------------------------------------
+
   db_name = "appdb"
 
+
   # ----------------------------------------------------------
-  # LOGIN
+  # MASTER USER
+  #
+  # IMPORTANT:
+  #
+  # DO NOT USE:
+  #
+  # rdsadmin
+  # rds_superuser
+  # rds_password
+  # rds_replication
+  # rds_reserved
+  # rdstopmgr
+  #
+  # "admin" is okay.
   # ----------------------------------------------------------
 
-  username = "admin"
+  username = "kcsuper"
 
-  # DEVELOPMENT ONLY
-  # Do not normally store passwords directly in Terraform.
+
+  # ----------------------------------------------------------
+  # MASTER PASSWORD
+  #
+  # DEV / TEST ONLY.
+  #
+  # Changeme123! is acceptable for the RDS PostgreSQL
+  # password rules.
+  #
+  # Production systems should use Secrets Manager.
+  # ----------------------------------------------------------
+
   password = "Changeme123!"
 
-  # PostgreSQL default port
-  port = 5432
 
   # ----------------------------------------------------------
-  # PUBLIC ACCESS
+  # POSTGRESQL PORT
+  # ----------------------------------------------------------
+
+  port = 5432
+
+
+  # ----------------------------------------------------------
+  # MAKE RDS PUBLICLY REACHABLE
   # ----------------------------------------------------------
 
   publicly_accessible = true
 
-  db_subnet_group_name = aws_db_subnet_group.postgres.name
+
+  # ----------------------------------------------------------
+  # RDS SUBNET GROUP
+  # ----------------------------------------------------------
+
+  db_subnet_group_name = aws_db_subnet_group.zpostgres.name
+
+
+  # ----------------------------------------------------------
+  # SECURITY GROUP
+  # ----------------------------------------------------------
 
   vpc_security_group_ids = [
-    aws_security_group.postgres_sg.id
+    aws_security_group.zpostgres.id
   ]
 
+
   # ----------------------------------------------------------
-  # KEEP COST LOW
+  # KEEP DEV COST / COMPLEXITY LOW
   # ----------------------------------------------------------
 
-  # Do not create standby database
   multi_az = false
 
-  # Disable backups for this simple development example
+
+  # ----------------------------------------------------------
+  # NO AUTOMATED BACKUPS FOR THIS THROWAWAY LAB
+  # ----------------------------------------------------------
+
   backup_retention_period = 0
 
-  # Allow Terraform to delete database
+
+  # ----------------------------------------------------------
+  # ALLOW TERRAFORM DESTROY
+  # ----------------------------------------------------------
+
   deletion_protection = false
 
-  # Do not make final snapshot when destroying
+
+  # ----------------------------------------------------------
+  # DO NOT CREATE FINAL SNAPSHOT ON DESTROY
+  # ----------------------------------------------------------
+
   skip_final_snapshot = true
+
+
+  # ----------------------------------------------------------
+  # APPLY CHANGES IMMEDIATELY
+  # ----------------------------------------------------------
 
   apply_immediately = true
 
+
+  # ----------------------------------------------------------
+  # ALLOW AWS MINOR VERSION UPDATES
+  # ----------------------------------------------------------
+
   auto_minor_version_upgrade = true
+
 
   tags = {
     Name        = "postgres-dev"
@@ -242,46 +396,75 @@ resource "aws_db_instance" "postgres" {
   }
 }
 
+
 # ============================================================
-# OUTPUTS
+# OUTPUT: DATABASE HOST
 # ============================================================
 
 output "postgres_host" {
-  description = "RDS PostgreSQL hostname"
-  value       = aws_db_instance.postgres.address
+  description = "Public PostgreSQL RDS DNS hostname"
+
+  value = aws_db_instance.zpostgres.address
 }
+
+
+# ============================================================
+# OUTPUT: DATABASE ENDPOINT INCLUDING PORT
+# ============================================================
+
+output "postgres_endpoint" {
+  description = "PostgreSQL hostname and port"
+
+  value = aws_db_instance.zpostgres.endpoint
+}
+
+
+# ============================================================
+# OUTPUT: DATABASE PORT
+# ============================================================
 
 output "postgres_port" {
-  description = "PostgreSQL port"
-  value       = aws_db_instance.postgres.port
+  value = aws_db_instance.zpostgres.port
 }
 
-output "database_name" {
+
+# ============================================================
+# OUTPUT: DATABASE NAME
+# ============================================================
+
+output "postgres_database" {
   value = "appdb"
 }
 
-output "database_username" {
+
+# ============================================================
+# OUTPUT: USERNAME
+# ============================================================
+
+output "postgres_username" {
   value = "admin"
 }
 
+
 # ============================================================
-# FULL DATABASE CONNECTION URL
+# OUTPUT: FULL POSTGRESQL URL
 #
-# Terraform hides this because it contains the password.
+# Terraform marks it sensitive because it contains a password.
 # ============================================================
 
 output "postgres_url" {
-  value = "postgresql://admin:Changeme123!@${aws_db_instance.postgres.address}:5432/appdb?sslmode=require"
+  value = "postgresql://admin:Changeme123!@${aws_db_instance.zpostgres.address}:5432/appdb?sslmode=require"
 
   sensitive = true
 }
 
+
 # ============================================================
-# PSQL CONNECTION COMMAND
+# OUTPUT: PSQL COMMAND
 # ============================================================
 
 output "psql_command" {
-  value = "PGPASSWORD='Changeme123!' psql -h ${aws_db_instance.postgres.address} -p 5432 -U admin -d appdb"
+  value = "PGPASSWORD='Changeme123!' psql \"host=${aws_db_instance.zpostgres.address} port=5432 dbname=appdb user=admin sslmode=require\""
 
   sensitive = true
 }

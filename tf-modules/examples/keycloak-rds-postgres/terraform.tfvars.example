@@ -1,0 +1,33 @@
+# Copy to terraform.tfvars and edit.
+
+aws_region   = "us-east-1"
+project_name = "keycloak"
+environment  = "dev"
+
+vpc_cidr = "10.20.0.0/16"
+
+# t4g.nano (512 MB) will NOT start a JVM. t4g.small is the realistic minimum.
+instance_type = "t4g.small"
+
+# Pin the version. "latest" means a future instance refresh silently upgrades
+# you across a major Keycloak release.
+keycloak_image = "quay.io/keycloak/keycloak:26.0"
+
+db_instance_class = "db.t4g.micro"
+db_name           = "keycloak"
+
+# Keep at 1 unless you have configured Infinispan clustering.
+desired_capacity = 1
+max_size         = 2
+
+# An identity provider is a high-value target. Restrict this in anything real:
+#   curl -s https://checkip.amazonaws.com
+# allowed_cidr = "203.0.113.45/32"
+allowed_cidr = "0.0.0.0/0"
+
+# Leave empty to use the load balancer hostname. Set once you have a domain
+# and a certificate -- Keycloak builds redirect URLs from this value.
+# hostname_url = "https://sso.example.com"
+
+enable_nacls               = true
+enable_deletion_protection = false

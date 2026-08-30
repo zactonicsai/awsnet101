@@ -47,6 +47,10 @@ Three rules follow from it:
 | [`route53-record`](modules/route53-record) | DNS records | `zone_id`, alias targets |
 | [`s3-bucket`](modules/s3-bucket) | Bucket + encryption + lifecycle | KMS key (optional) |
 | [`rds`](modules/rds) | Database + subnet group | subnets, SGs |
+| [`network-acl`](modules/network-acl) | Subnet firewall, ingress + egress | `vpc_id`, subnets |
+| [`secrets-manager`](modules/secrets-manager) | Secret + generated password | KMS key (optional) |
+| [`vpc-endpoints`](modules/vpc-endpoints) | Gateway + interface endpoints | `vpc_id`, subnets, SGs, route tables |
+| [`kms-key`](modules/kms-key) | Customer-managed key + alias | role ARNs, service principals |
 
 Each has its own README with usage examples, an input reference, and a gotchas section.
 
@@ -55,6 +59,13 @@ Each has its own README with usage examples, an input reference, and a gotchas s
 Something has to create network primitives. If you already have a VPC, **skip that module entirely** and pass your own IDs to the rest.
 
 ---
+
+## Examples
+
+| Example | What it shows | Cost |
+|---|---|---|
+| [`web-app-asg-alb`](examples/web-app-asg-alb) | The minimal shape: ALB -> ASG in private subnets. No NAT | ~$24/mo |
+| [`keycloak-rds-postgres`](examples/keycloak-rds-postgres) | Docker via user data, firewalld, RDS Postgres, Secrets Manager, NACLs | ~$76/mo |
 
 ## Quick start
 
@@ -150,10 +161,25 @@ The expensive items, so nothing surprises you:
 | Route 53 hosted zone | $0.50/mo | Alias queries are free |
 | **S3 Gateway Endpoint** | **$0** | Often removes the need for NAT |
 | ACM certificate | **$0** | With ALB or CloudFront |
+| Interface VPC endpoint | ~$7.20/mo **each, per AZ** | Adds up faster than NAT — do the arithmetic |
+| Secrets Manager secret | $0.40/mo | Plus $0.05 per 10k calls |
+| Customer-managed KMS key | $1.00/mo | The AWS-managed key is free and usually enough |
 
 Before building anything, set a budget alert: Billing → Budgets → zero-spend or $5 monthly.
 
 ---
+
+## Two firewall layers, and when to use which
+
+| | `security-group` | `network-acl` |
+|---|---|---|
+| Scope | One resource | A whole subnet |
+| State | **Stateful** — replies automatic | **Stateless** — both directions needed |
+| Rules | Allow only | Allow **and deny** |
+| Order | All together | Numbered, first match wins |
+| Use for | **Day-to-day access control** | Defence in depth, coarse blocking |
+
+Reach for security groups first — they reference each other, they are stateful, and they are much harder to get subtly wrong. Add NACLs as a second layer, or when you need an explicit `deny` that a security group cannot express.
 
 ## Requirements
 
