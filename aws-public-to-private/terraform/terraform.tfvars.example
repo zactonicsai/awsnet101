@@ -1,0 +1,44 @@
+# =============================================================================
+# terraform.tfvars.example
+# -----------------------------------------------------------------------------
+# HOW TO USE THIS FILE:
+#   1. Copy it:  cp terraform.tfvars.example terraform.tfvars
+#   2. Edit terraform.tfvars with your own values.
+#   3. Terraform loads terraform.tfvars automatically. You never pass it as a flag.
+#
+# terraform.tfvars is listed in .gitignore because real ones often contain
+# account-specific details you don't want in a public repository.
+# =============================================================================
+
+# --- Basics ------------------------------------------------------------------
+aws_region   = "us-east-1" # usually the cheapest region
+project_name = "web-demo"  # lowercase, hyphens, 3-20 chars
+environment  = "dev"
+
+# --- Cost dials --------------------------------------------------------------
+# t4g.nano  = ~$3.07/month, cheapest overall (ARM chip)
+# t3.micro  = FREE for 750 hrs/month if your account is under 12 months old
+instance_type = "t4g.nano"
+
+# 1 = cheapest. 2 = one server per Availability Zone, survives a data center failure.
+instance_count = 1
+
+# --- The app -----------------------------------------------------------------
+app_port      = 8080
+response_text = "It works!"
+
+# --- Security ----------------------------------------------------------------
+# 0.0.0.0/0 = the entire internet, correct for a real public website.
+# To keep your test private, replace it with your own IP address. Find it with:
+#     curl -s https://checkip.amazonaws.com
+# then write it as a /32, for example: allowed_ingress_cidrs = ["203.0.113.45/32"]
+allowed_ingress_cidrs = ["0.0.0.0/0"]
+
+# --- DNS (optional) ----------------------------------------------------------
+# Leave enable_dns = false unless you ALREADY own a domain and have created a
+# public hosted zone for it in Route 53. Without it you still get a working URL.
+enable_dns = false
+
+# Uncomment and fill these in only when enable_dns = true:
+# hosted_zone_name = "example.com"   # your real domain, no www, no trailing dot
+# subdomain        = "app"           # produces app.example.com

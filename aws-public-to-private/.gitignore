@@ -1,0 +1,43 @@
+# =============================================================================
+# .gitignore - files that must NEVER be committed to version control
+# =============================================================================
+
+# --- Terraform ---------------------------------------------------------------
+# State files record everything you built AND can contain sensitive values.
+# Losing them means Terraform forgets your infrastructure exists (while it
+# keeps billing). Leaking them can expose secrets. On a real team these live
+# in an S3 bucket with DynamoDB locking, never in Git.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+
+# Your real settings, which often contain account-specific details.
+# The committed terraform.tfvars.example is the safe template.
+terraform.tfvars
+*.auto.tfvars
+
+# Saved plan files can contain sensitive variable values.
+*.tfplan
+
+# --- Our CLI scripts ---------------------------------------------------------
+# The hand-rolled state file holding real AWS resource IDs.
+.state.env
+.state.env.tmp
+
+# --- Credentials - the ones that actually hurt -------------------------------
+# If an AWS access key reaches a public repo, bots find it within minutes.
+*.pem
+*.ppk
+credentials
+.env
+.aws/
+
+# --- Editors and operating systems -------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
