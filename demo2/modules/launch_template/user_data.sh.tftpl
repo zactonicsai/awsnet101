@@ -1,0 +1,42 @@
+#!/bin/bash
+set -euxo pipefail
+
+# --- Install Apache (works on Amazon Linux 2023 and Amazon Linux 2) ---
+if command -v dnf >/dev/null 2>&1; then
+  dnf install -y httpd
+else
+  yum install -y httpd
+fi
+
+# --- Listen on the port the target group expects ---
+if [ "${http_port}" != "80" ]; then
+  sed -i "s/^Listen 80$/Listen ${http_port}/" /etc/httpd/conf/httpd.conf
+fi
+
+# --- Ask the instance metadata service who we are (IMDSv2) ---
+TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/placement/availability-zone)
+
+# --- Write the page the load balancer will serve ---
+cat > /var/www/html/index.html <<HTML
+<!doctype html>
+<html>
+  <head><title>${page_title}</title></head>
+  <body style="font-family: sans-serif; margin: 4rem;">
+    <h1>${page_title}</h1>
+    <p>${page_body}</p>
+    <p>Instance ID: <code>$INSTANCE_ID</code></p>
+    <p>Availability Zone: <code>$AZ</code></p>
+  </body>
+</html>
+HTML
+
+# --- Tiny endpoint the ALB health check can hit cheaply ---
+echo "ok" > /var/www/html/health
+
+systemctl enable httpd
+systemctl restart httpd

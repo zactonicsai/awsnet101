@@ -19,3 +19,8 @@ rds2/.terraform.tfstate.lock.info
 *.hcl
 awsgenerator/basic/terraform.tfstate
 .gitignore
+demo2/terraform.tfstate
+*.hcl
+*.tfstate
+.terraform/
+*.info

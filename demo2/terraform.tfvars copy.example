@@ -1,0 +1,52 @@
+############################################
+# Copy this file to terraform.tfvars and edit the values.
+#   cp terraform.tfvars.example terraform.tfvars
+# terraform.tfvars is loaded automatically by terraform plan/apply.
+############################################
+
+aws_region   = "us-east-1"
+project_name = "demo"
+environment  = "dev"
+
+# ---- Network you already have (REQUIRED - no defaults) ----
+vpc_id = "vpc-0123456789abcdef0"
+
+# ALB needs at least two subnets in two different AZs.
+alb_subnet_ids = [
+  "subnet-0aaa111111111aaaa", # us-east-1a
+  "subnet-0bbb222222222bbbb", # us-east-1b
+]
+
+# The single EC2 instance goes in one subnet.
+instance_subnet_id = "subnet-0aaa111111111aaaa"
+
+# ---- Security groups you already have (REQUIRED) ----
+# ALB SG: allow inbound TCP 80 from 0.0.0.0/0
+alb_security_group_ids = ["sg-0aaa111111111aaaa"]
+
+# Instance SG: allow inbound TCP 80 FROM the ALB security group above
+instance_security_group_ids = ["sg-0bbb222222222bbbb"]
+
+# ---- Instance ----
+instance_type = "t3.micro"
+ami_id        = "" # "" = newest Amazon Linux 2023 in this region
+key_name      = "" # "" = no SSH key, use SSM Session Manager
+
+# ---- Ports ----
+listener_port     = 80
+app_port          = 80
+health_check_path = "/health"
+
+# ---- IAM ----
+create_instance_profile = true
+instance_managed_policy_arns = [
+  "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+]
+instance_inline_policy_json = ""
+
+# ---- Tags ----
+tags = {
+  Project   = "demo"
+  ManagedBy = "terraform"
+  Owner     = "platform-team"
+}
